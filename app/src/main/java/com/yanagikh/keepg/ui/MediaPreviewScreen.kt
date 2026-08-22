@@ -4,9 +4,11 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -45,7 +47,6 @@ import com.yanagikh.keepg.data.PhotoEntity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.min
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,7 +92,9 @@ internal fun MediaPreviewDialog(
                     title = { Text(photo.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { IconButton(onDismiss) { Icon(Icons.Default.ArrowBack, tr("Back")) } },
                     actions = {
-                        IconButton(onFavorite) { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite")) }
+                        IconButton(onFavorite) {
+                            Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite"))
+                        }
                         IconButton({ showShare = true }) { Icon(Icons.Default.Share, tr("Share")) }
                         Box {
                             IconButton({ showMore = true }) { Icon(Icons.Default.MoreVert, null) }
@@ -109,17 +112,19 @@ internal fun MediaPreviewDialog(
                                     }
                                     DropdownMenuItem({ Text(tr("Repair")) }, { showMore = false; repair = true }, leadingIcon = { Icon(Icons.Default.Build, null) })
                                 }
-                                DropdownMenuItem({ Text(tr("Collection")) }, { showMore = false; pickCollection = true }, leadingIcon = { Icon(Icons.Default.Collections, null) }, enabled = collections.isNotEmpty())
+                                DropdownMenuItem(
+                                    { Text(tr("Collection")) },
+                                    { showMore = false; pickCollection = true },
+                                    leadingIcon = { Icon(Icons.Default.Collections, null) },
+                                    enabled = collections.isNotEmpty(),
+                                )
                             }
                         }
                     },
                 )
                 Box(Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)) {
-                    if (photo.mimeType.startsWith("video/")) {
-                        ZoomableVideoPlayer(photo)
-                    } else {
-                        ZoomableImagePreview(photo, fullFeatures, onDetectLinks)
-                    }
+                    if (photo.mimeType.startsWith("video/")) ZoomableVideoPlayer(photo)
+                    else ZoomableImagePreview(photo, fullFeatures, onDetectLinks)
                 }
                 NavigationBar {
                     NavigationBarItem(isFavorite, onFavorite, { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) }, label = { Text(tr("Favorite")) })
@@ -132,12 +137,7 @@ internal fun MediaPreviewDialog(
         }
     }
 
-    if (showShare) {
-        ShareDialog(
-            onDismiss = { showShare = false },
-            onShare = { password -> showShare = false; onShare(password) },
-        )
-    }
+    if (showShare) ShareDialog({ showShare = false }) { password -> showShare = false; onShare(password) }
     if (showDelete) {
         DeletePasswordDialog(
             hasPassword = hasDeletionPassword,
@@ -147,27 +147,30 @@ internal fun MediaPreviewDialog(
             onAuthorized = { showDelete = false; onDelete() },
         )
     }
-    if (showDetails) {
-        MediaDetailsDialog(photo, { showDetails = false }, onRename)
-    }
+    if (showDetails) MediaDetailsDialog(photo, { showDetails = false }, onRename)
     if (showEditor) {
         if (photo.mimeType.startsWith("image/")) {
-            AdvancedImageEditorDialog(photo, { showEditor = false }) { request ->
-                showEditor = false
-                onAdvancedEdit(request)
-            }
+            AdvancedImageEditorDialog(photo, { showEditor = false }) { request -> showEditor = false; onAdvancedEdit(request) }
         } else {
-            VideoEditDialog(
-                { showEditor = false },
-                { operation -> showEditor = false; onEdit(operation, 0.35f) },
-            )
+            VideoEditDialog({ showEditor = false }) { operation -> showEditor = false; onEdit(operation, .35f) }
         }
     }
     if (pickCollection) {
         AlertDialog(
             onDismissRequest = { pickCollection = false },
             title = { Text(tr("Collection")) },
-            text = { LazyColumn { items(collections, key = { it.id }) { collection -> ListItem({ Text(collection.name) }, modifier = Modifier.pointerInput(collection.id) { detectTapGestures(onTap = { onCollection(collection.id); pickCollection = false }) }) } } },
+            text = {
+                LazyColumn {
+                    items(collections, key = { it.id }) { collection ->
+                        ListItem(
+                            headlineContent = { Text(collection.name) },
+                            modifier = Modifier.pointerInput(collection.id) {
+                                detectTapGestures(onTap = { onCollection(collection.id); pickCollection = false })
+                            },
+                        )
+                    }
+                }
+            },
             confirmButton = {},
             dismissButton = { TextButton({ pickCollection = false }) { Text(tr("Cancel")) } },
         )
@@ -193,17 +196,13 @@ private fun ZoomableImagePreview(photo: PhotoEntity, linkDetection: Boolean, onD
             .onSizeChanged { viewport = it }
             .pointerInput(photo.mediaId) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    val next = (scale * zoom).coerceIn(1f, 100f)
-                    scale = next
+                    scale = (scale * zoom).coerceIn(1f, 100f)
                     translation += pan
                 }
             }
             .pointerInput(photo.mediaId, scale, translation, viewport, linkDetection) {
                 detectTapGestures(
-                    onDoubleTap = {
-                        scale = if (scale > 1.01f) 1f else 4f
-                        translation = Offset.Zero
-                    },
+                    onDoubleTap = { scale = if (scale > 1.01f) 1f else 4f; translation = Offset.Zero },
                     onLongPress = { position ->
                         if (!linkDetection || viewport.width <= 0 || viewport.height <= 0) return@detectTapGestures
                         val center = Offset(viewport.width / 2f, viewport.height / 2f)
@@ -220,12 +219,7 @@ private fun ZoomableImagePreview(photo: PhotoEntity, linkDetection: Boolean, onD
         AsyncImage(
             Uri.parse(photo.uri),
             photo.displayName,
-            Modifier.fillMaxSize().graphicsLayer(
-                scaleX = scale,
-                scaleY = scale,
-                translationX = translation.x,
-                translationY = translation.y,
-            ),
+            Modifier.fillMaxSize().graphicsLayer(scaleX = scale, scaleY = scale, translationX = translation.x, translationY = translation.y),
             contentScale = ContentScale.Fit,
         )
         if (linkDetection) {
@@ -261,33 +255,17 @@ private fun ZoomableVideoPlayer(photo: PhotoEntity) {
             modifier = Modifier.fillMaxSize()
                 .graphicsLayer(scaleX = scale, scaleY = scale, translationX = translation.x, translationY = translation.y)
                 .pointerInput(photo.mediaId) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(1f, 40f)
-                        translation += pan
-                    }
+                    detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 40f); translation += pan }
                 },
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = true
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    this.player = player
-                }
-            },
+            factory = { ctx -> PlayerView(ctx).apply { useController = true; resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; this.player = player } },
             update = { it.player = player },
         )
-        Row(
-            Modifier.align(Alignment.TopEnd).padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        Row(Modifier.align(Alignment.TopEnd).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Box {
                 FilledTonalButton({ speedMenu = true }, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("${speed}×") }
                 DropdownMenu(speedMenu, { speedMenu = false }) {
                     listOf(.25f, .5f, 1f, 1.5f, 2f, 3f).forEach { value ->
-                        DropdownMenuItem({ Text("${value}×") }, {
-                            speed = value
-                            player.playbackParameters = PlaybackParameters(value)
-                            speedMenu = false
-                        })
+                        DropdownMenuItem({ Text("${value}×") }, { speed = value; player.playbackParameters = PlaybackParameters(value); speedMenu = false })
                     }
                 }
             }
@@ -298,8 +276,7 @@ private fun ZoomableVideoPlayer(photo: PhotoEntity) {
                         DropdownMenuItem({ Text(if (label == "Auto") tr("Auto quality") else label) }, {
                             quality = label
                             val builder = trackSelector.buildUponParameters()
-                            if (height == null) builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
-                            else builder.setMaxVideoSize(height * 16 / 9, height)
+                            if (height == null) builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE) else builder.setMaxVideoSize(height * 16 / 9, height)
                             trackSelector.setParameters(builder)
                             qualityMenu = false
                         })
@@ -338,10 +315,7 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
                                 offsetY = if (viewport.height > 0) offset.y / viewport.height else 0f,
                                 scale = scale,
                                 rotation = rotation,
-                                cropLeft = cropRect[0],
-                                cropTop = cropRect[1],
-                                cropRight = cropRect[2],
-                                cropBottom = cropRect[3],
+                                cropLeft = cropRect[0], cropTop = cropRect[1], cropRight = cropRect[2], cropBottom = cropRect[3],
                                 backgroundRemoval = background,
                                 backgroundStrength = backgroundStrength,
                                 textLayers = layers,
@@ -361,8 +335,7 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
                     contentAlignment = Alignment.Center,
                 ) {
                     AsyncImage(
-                        Uri.parse(photo.uri),
-                        null,
+                        Uri.parse(photo.uri), null,
                         Modifier.fillMaxSize().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y, rotationZ = rotation),
                         contentScale = ContentScale.Fit,
                     )
@@ -372,17 +345,12 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
                         }
                     }
                 }
-                LazyColumn(
-                    Modifier.fillMaxWidth().heightIn(max = 310.dp).padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 310.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text(tr("Drag with one finger; pinch with two fingers to move and scale."), style = MaterialTheme.typography.bodySmall) }
                     item { OutlinedTextField(outputName, { outputName = it }, Modifier.fillMaxWidth(), label = { Text(tr("Output name")) }, singleLine = true) }
                     item {
                         Text(tr("Crop"), fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Original", "Square", "4:3", "16:9").forEach { value -> FilterChip(crop == value, { crop = value }, { Text(tr(value)) }) }
-                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("Original", "Square", "4:3", "16:9").forEach { value -> FilterChip(crop == value, { crop = value }, { Text(tr(value)) }) } }
                     }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -393,12 +361,10 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
                     }
                     item {
                         Text(tr("Background"), fontWeight = FontWeight.Bold)
-                        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(
-                                BackgroundRemovalMode.NONE to "Keep background",
-                                BackgroundRemovalMode.AUTO to "Auto remove",
-                                BackgroundRemovalMode.MANUAL to "Manual remove",
-                            ).forEach { (mode, label) -> FilterChip(background == mode, { background = mode }, { Text(tr(label)) }) }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(BackgroundRemovalMode.NONE to "Keep background", BackgroundRemovalMode.AUTO to "Auto remove", BackgroundRemovalMode.MANUAL to "Manual remove").forEach { (mode, label) ->
+                                FilterChip(background == mode, { background = mode }, { Text(tr(label)) })
+                            }
                         }
                         if (background == BackgroundRemovalMode.MANUAL) Slider(backgroundStrength, { backgroundStrength = it }, valueRange = .05f.. .75f)
                     }
@@ -432,36 +398,32 @@ private fun VideoEditDialog(onDismiss: () -> Unit, onEdit: (MediaEditOperation) 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("Video editor")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton({ onEdit(MediaEditOperation.VIDEO_TRIM_FIRST_5_SECONDS) }, Modifier.fillMaxWidth()) { Text(tr("Trim first 5 seconds")) }
-                OutlinedButton({ onEdit(MediaEditOperation.VIDEO_MUTE) }, Modifier.fillMaxWidth()) { Text(tr("Create muted copy")) }
-            }
-        },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton({ onEdit(MediaEditOperation.VIDEO_TRIM_FIRST_5_SECONDS) }, Modifier.fillMaxWidth()) { Text(tr("Trim first 5 seconds")) }
+            OutlinedButton({ onEdit(MediaEditOperation.VIDEO_MUTE) }, Modifier.fillMaxWidth()) { Text(tr("Create muted copy")) }
+        } },
         confirmButton = {},
         dismissButton = { TextButton(onDismiss) { Text(tr("Close")) } },
     )
 }
 
 @Composable
-private fun ShareDialog(onDismiss: () -> Unit, onShare: (String?) -> Unit) {
+internal fun ShareDialog(onDismiss: () -> Unit, onShare: (String?) -> Unit) {
     var password by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("Share media")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(password, { password = it }, label = { Text(tr("Optional password")) }, singleLine = true)
-                Text(tr("Leave blank for normal sharing. A password creates an AES-encrypted ZIP."), style = MaterialTheme.typography.bodySmall)
-            }
-        },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(password, { password = it }, label = { Text(tr("Optional password")) }, singleLine = true)
+            Text(tr("Leave blank for normal sharing. A password creates an AES-encrypted ZIP."), style = MaterialTheme.typography.bodySmall)
+        } },
         confirmButton = { Button({ if (password.isBlank() || password.length >= 6) onShare(password.ifBlank { null }) }) { Text(tr("Share")) } },
         dismissButton = { TextButton(onDismiss) { Text(tr("Cancel")) } },
     )
 }
 
 @Composable
-private fun DeletePasswordDialog(
+internal fun DeletePasswordDialog(
     hasPassword: Boolean,
     verify: (String) -> Boolean,
     setPassword: (String) -> Boolean,
@@ -470,21 +432,21 @@ private fun DeletePasswordDialog(
 ) {
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    val minimumMessage = tr("Use at least 6 characters")
+    val incorrectMessage = tr("Incorrect password")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr(if (hasPassword) "Enter deletion password" else "Create deletion password")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(password, { password = it; error = null }, label = { Text(tr("Password")) }, singleLine = true, isError = error != null)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(password, { password = it; error = null }, label = { Text(tr("Password")) }, singleLine = true, isError = error != null)
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        } },
         confirmButton = {
             Button({
-                if (password.length < 6) error = tr("Use at least 6 characters")
+                if (password.length < 6) error = minimumMessage
                 else if (!hasPassword) {
-                    if (setPassword(password)) onAuthorized() else error = tr("Use at least 6 characters")
-                } else if (verify(password)) onAuthorized() else error = tr("Incorrect password")
+                    if (setPassword(password)) onAuthorized() else error = minimumMessage
+                } else if (verify(password)) onAuthorized() else error = incorrectMessage
             }) { Text(tr("Delete")) }
         },
         dismissButton = { TextButton(onDismiss) { Text(tr("Cancel")) } },
@@ -498,18 +460,16 @@ private fun MediaDetailsDialog(photo: PhotoEntity, onDismiss: () -> Unit, onRena
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("File information")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                DetailRow(tr("Name"), photo.displayName)
-                DetailRow(tr("Album"), photo.bucketName)
-                DetailRow(tr("MIME type"), photo.mimeType)
-                DetailRow(tr("Resolution"), "${photo.width} × ${photo.height}")
-                DetailRow(tr("File size"), formatBytes(photo.sizeBytes))
-                if (photo.durationMs > 0L) DetailRow(tr("Duration"), formatDuration(photo.durationMs))
-                DetailRow(tr("Modified"), DateFormat.getDateTimeInstance().format(Date(photo.dateTaken)))
-                TextButton({ rename = true }) { Icon(Icons.Default.DriveFileRenameOutline, null); Text(tr("Rename")) }
-            }
-        },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            DetailRow(tr("Name"), photo.displayName)
+            DetailRow(tr("Album"), photo.bucketName)
+            DetailRow(tr("MIME type"), photo.mimeType)
+            DetailRow(tr("Resolution"), "${photo.width} × ${photo.height}")
+            DetailRow(tr("File size"), formatBytes(photo.sizeBytes))
+            if (photo.durationMs > 0L) DetailRow(tr("Duration"), formatDuration(photo.durationMs))
+            DetailRow(tr("Modified"), DateFormat.getDateTimeInstance().format(Date(photo.dateTaken)))
+            TextButton({ rename = true }) { Icon(Icons.Default.DriveFileRenameOutline, null); Text(tr("Rename")) }
+        } },
         confirmButton = { TextButton(onDismiss) { Text(tr("Close")) } },
     )
     if (rename) {
@@ -525,10 +485,7 @@ private fun MediaDetailsDialog(photo: PhotoEntity, onDismiss: () -> Unit, onRena
 
 @Composable
 private fun DetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth()) {
-        Text(label, Modifier.width(100.dp), fontWeight = FontWeight.Bold)
-        Text(value, Modifier.weight(1f))
-    }
+    Row(Modifier.fillMaxWidth()) { Text(label, Modifier.width(100.dp), fontWeight = FontWeight.Bold); Text(value, Modifier.weight(1f)) }
 }
 
 private fun fitNormalizedPoint(position: Offset, viewport: IntSize, imageWidth: Int, imageHeight: Int): Pair<Float, Float>? {
@@ -540,15 +497,9 @@ private fun fitNormalizedPoint(position: Offset, viewport: IntSize, imageWidth: 
     val left: Float
     val top: Float
     if (imageAspect > viewportAspect) {
-        drawWidth = viewport.width.toFloat()
-        drawHeight = drawWidth / imageAspect
-        left = 0f
-        top = (viewport.height - drawHeight) / 2f
+        drawWidth = viewport.width.toFloat(); drawHeight = drawWidth / imageAspect; left = 0f; top = (viewport.height - drawHeight) / 2f
     } else {
-        drawHeight = viewport.height.toFloat()
-        drawWidth = drawHeight * imageAspect
-        left = (viewport.width - drawWidth) / 2f
-        top = 0f
+        drawHeight = viewport.height.toFloat(); drawWidth = drawHeight * imageAspect; left = (viewport.width - drawWidth) / 2f; top = 0f
     }
     if (position.x !in left..(left + drawWidth) || position.y !in top..(top + drawHeight)) return null
     return ((position.x - left) / drawWidth).coerceIn(0f, 1f) to ((position.y - top) / drawHeight).coerceIn(0f, 1f)
@@ -556,21 +507,12 @@ private fun fitNormalizedPoint(position: Offset, viewport: IntSize, imageWidth: 
 
 private fun cropRect(mode: String, width: Int, height: Int): FloatArray {
     if (mode == "Original" || width <= 0 || height <= 0) return floatArrayOf(0f, 0f, 1f, 1f)
-    val target = when (mode) {
-        "Square" -> 1f
-        "4:3" -> 4f / 3f
-        "16:9" -> 16f / 9f
-        else -> width.toFloat() / height
-    }
+    val target = when (mode) { "Square" -> 1f; "4:3" -> 4f / 3f; "16:9" -> 16f / 9f; else -> width.toFloat() / height }
     val current = width.toFloat() / height
     return if (current > target) {
-        val fraction = target / current
-        val inset = (1f - fraction) / 2f
-        floatArrayOf(inset, 0f, 1f - inset, 1f)
+        val fraction = target / current; val inset = (1f - fraction) / 2f; floatArrayOf(inset, 0f, 1f - inset, 1f)
     } else {
-        val fraction = current / target
-        val inset = (1f - fraction) / 2f
-        floatArrayOf(0f, inset, 1f, 1f - inset)
+        val fraction = current / target; val inset = (1f - fraction) / 2f; floatArrayOf(0f, inset, 1f, 1f - inset)
     }
 }
 
