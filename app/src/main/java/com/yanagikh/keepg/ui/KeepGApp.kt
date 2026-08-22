@@ -64,6 +64,8 @@ fun KeepGApp(
 
     CompositionLocalProvider(LocalAppLanguage provides settings.language) {
         val tabs = if (fullFeatures) Tab.entries else listOf(Tab.PHOTOS, Tab.ALBUMS, Tab.SETTINGS)
+        val incorrectPasswordMessage = tr("Incorrect password")
+        val minimumPasswordMessage = tr("Use at least 6 characters")
         var tab by remember { mutableStateOf(Tab.PHOTOS) }
         var preview by remember { mutableStateOf<PhotoEntity?>(null) }
         var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
@@ -75,7 +77,6 @@ fun KeepGApp(
         var localMessage by remember { mutableStateOf<String?>(null) }
         var batchShare by remember { mutableStateOf(false) }
         var batchDelete by remember { mutableStateOf(false) }
-        var pendingRemoval by remember { mutableStateOf<List<PhotoEntity>>(emptyList()) }
         val snackbar = remember { SnackbarHostState() }
 
         val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
@@ -88,7 +89,6 @@ fun KeepGApp(
             } else {
                 localMessage = "Delete request cancelled"
             }
-            pendingRemoval = emptyList()
         }
 
         LaunchedEffect(Unit) { permissionLauncher.launch(mediaPermissions) }
@@ -137,7 +137,6 @@ fun KeepGApp(
             if (media.isEmpty()) return
             val sender = viewModel.createRemovalIntentSender(media)
             if (sender != null) {
-                pendingRemoval = media
                 removalLauncher.launch(IntentSenderRequest.Builder(sender).build())
             } else {
                 preview = null
@@ -333,7 +332,7 @@ fun KeepGApp(
                         pendingPreviewAfterUnlock = null
                         unlockLock = null
                         unlockPassword = ""
-                    } else localMessage = tr("Incorrect password")
+                    } else localMessage = incorrectPasswordMessage
                 },
                 { unlockLock = null; pendingPreviewAfterUnlock = null },
             )
@@ -378,7 +377,7 @@ fun KeepGApp(
                 { newPassword = it },
                 tr("Protect"),
                 {
-                    if (newPassword.length < 6) localMessage = tr("Use at least 6 characters")
+                    if (newPassword.length < 6) localMessage = minimumPasswordMessage
                     else {
                         if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword)
                         else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
