@@ -51,21 +51,13 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
-    }
-
+    testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
     kotlinOptions { jvmTarget = "17" }
-
-    lint {
-        abortOnError = true
-        warningsAsErrors = false
-    }
+    lint { abortOnError = true; warningsAsErrors = false }
 }
 
 dependencies {
@@ -88,12 +80,12 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-video:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
 
-    add("fullImplementation", "com.google.mlkit:face-detection:16.1.7")
     add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
     add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")
     add("fullImplementation", "com.google.mlkit:segmentation-selfie:16.0.0-beta6")
