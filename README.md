@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>A privacy-first Android gallery with local smart organization, per-photo/album locks, and an encrypted Vault.</strong>
+  <strong>A privacy-first Android gallery with broad media support, local smart organization, protected media, editing tools, and an encrypted Vault.</strong>
 </p>
 
 <p align="center">
@@ -15,45 +15,51 @@
 
 ## What KeepG is
 
-KeepG is an Android photo manager intended to grow into a capable replacement for a basic device gallery while keeping sensitive organization data local. It indexes the device library through Android MediaStore, offers physical-album browsing plus user-created logical collections, protects selected photos or albums, creates AES-GCM encrypted Vault copies, and provides on-device smart organization for people, time, location, and facial-expression rules.
+KeepG is an Android media manager intended to replace a basic device gallery while keeping sensitive organization data local. It indexes Android MediaStore images and videos, browses device albums, creates logical Collections, protects selected photos or albums, creates AES-GCM encrypted Vault copies, and provides on-device smart organization for people, time, location, and facial-expression rules.
 
-The current implementation deliberately separates **convenience locks** from **cryptographic storage**. A KeepG lock prevents a protected target from being shown inside KeepG until authentication succeeds. A Vault copy is encrypted in app-private storage. This distinction avoids claiming that a UI lock magically encrypts or hides an original MediaStore file from every other gallery application.
+KeepG has two editions:
+
+| Edition | Purpose | Application ID |
+|---|---|---|
+| **KeepG Full** | Complete security, smart organization, editor, QR/URL detection, repair and Vault experience | `com.yanagikh.keepg` |
+| **KeepG Lite** | Small, straightforward gallery with image/video browsing, albums and Collections | `com.yanagikh.keepg.lite` |
+
+The separate application IDs allow Full and Lite to be installed on the same Android device.
 
 ## Interface demos
 
-> These SVGs are repository demo renders of the implemented information architecture and flows. Exact spacing and system chrome can vary by Android device/theme.
+> These SVGs are repository demo renders of the implemented information architecture and flows. Exact spacing and Android system chrome vary by device/theme.
 
 ### Library and protected thumbnails
 
-<p align="center"><img src="docs/images/demo-library.svg" alt="KeepG photo library demo" width="920" /></p>
+<p align="center"><img src="docs/images/demo-library.svg" alt="KeepG media library demo" width="920" /></p>
 
-- Adaptive Compose photo grid backed by MediaStore.
-- Protected photo/album thumbnails are replaced with a locked state until successful authentication.
-- Device albums remain readable as Android-managed albums; KeepG collections provide non-destructive logical organization.
+- Adaptive Compose media grid backed by Android MediaStore.
+- Image and video thumbnails; video items are marked with a play indicator.
+- Protected media is replaced with a locked state until successful authentication.
+- Long-press an unlocked image in Full edition to scan QR codes, barcodes and visible web URLs.
 
 ### Local people grouping and smart albums
 
 <p align="center"><img src="docs/images/demo-smart.svg" alt="KeepG smart organization demo" width="920" /></p>
 
 - ML Kit face detection runs on the device.
-- KeepG extracts a compact local visual descriptor and pose/expression signals from each detected face.
+- KeepG extracts a compact local visual descriptor plus pose/expression signals.
 - Cosine-similarity grouping proposes likely same-person clusters.
-- Users can rename person groups and create smart rules without uploading their library.
+- Users can rename person groups and create person/time/location/expression rules.
 
 ### Protection and encrypted Vault
 
 <p align="center"><img src="docs/images/demo-vault.svg" alt="KeepG Vault and lock demo" width="920" /></p>
 
-- **Device lock:** Android `BiometricPrompt` using a supported strong biometric/device credential.
-- **KeepG password:** PBKDF2-HMAC-SHA256, unique random salt, 210,000 iterations, constant-time verification.
+- **Device lock:** Android `BiometricPrompt` with supported strong biometric/device credential.
+- **KeepG password:** PBKDF2-HMAC-SHA256, random salt, 210,000 iterations and constant-time verification.
 - **Vault:** AES-GCM encrypted app-private files with a non-exportable Android Keystore key.
-- Room, preferences, and Vault storage are excluded from normal Android cloud backup paths.
+- Room, preferences and Vault storage are excluded from normal Android cloud backup paths.
 
 ### User-defined organization rules
 
 <p align="center"><img src="docs/images/demo-rules.svg" alt="KeepG smart rule examples" width="920" /></p>
-
-KeepG supports rule definitions for:
 
 | Rule | Matching source | Example |
 |---|---|---|
@@ -62,40 +68,85 @@ KeepG supports rule definitions for:
 | Location | EXIF coordinates + Haversine radius | `25.0330, 121.5654 within 2 km` |
 | Expression | ML Kit smile/eye probabilities | `smiling >= 0.80` |
 
-## Main features
+## Broad media support
 
-### Gallery and album management
+KeepG indexes both Android image and video MediaStore collections. Its extension/MIME registry recognizes common and less-common media including:
 
-- Android MediaStore indexing with capture time, dimensions, MIME type, bucket ID, and bucket name.
-- Adaptive photo grid and device-album browser.
-- User-created **Collections** for custom organization without moving original files.
-- Add photos to Collections from photo detail.
-- Refresh/prune logic keeps the local index aligned with MediaStore.
+- images: JPEG/JPG/JPE/JFIF, PNG, WebP, GIF, BMP/DIB, HEIC/HEIF, AVIF, DNG, TIFF/TIF, ICO, WBMP and SVG;
+- videos: MP4/M4V, MOV, 3GP/3GPP/3G2, MKV, WebM, AVI, MPEG/MPG, TS/MTS/M2TS and OGV.
 
-### Photo and album protection
+Recognition and decoding are separate concerns. Android/OEM codecs determine whether a specific encoded file is viewable. KeepG uses Coil video/SVG integration for thumbnails and Android platform decoders for native raster media.
 
-A photo or an entire device album can be protected with either Android device authentication or a target-specific KeepG password. Unlocking is session-scoped. Protected targets remain represented by a lock placeholder until unlocked.
+## Non-destructive editor (Full)
 
-### Encrypted Vault
+Image editing writes a new result under `Pictures/KeepG`; it does not overwrite the source.
 
-From photo detail, **Vault copy** streams the original into an AES-GCM `.kgv` file under KeepG's private internal storage. The encryption key is generated by Android Keystore and is not exported to the Room database or repository.
+- rotate 90° right;
+- horizontal flip;
+- grayscale;
+- center square crop;
+- automatic person/background removal using bundled on-device ML Kit selfie segmentation;
+- adjustable manual corner-color background removal;
+- GIF first-frame extraction to alpha-capable PNG.
 
-For confidentiality against other apps, remove the original MediaStore copy after verifying the encrypted copy. Android should own the destructive confirmation flow; KeepG does not silently delete user photos.
+Video editing writes a new MP4 under `Movies/KeepG` using Android `MediaExtractor`/`MediaMuxer`:
 
-### Smart organization
+- trim to the first five seconds;
+- remove audio tracks (muted copy).
+
+Video operations remux rather than transcode. A codec can be playable on a device yet be incompatible with MP4 remuxing; KeepG reports that case and leaves the original untouched. Animated GIF re-encoding is not claimed: the explicit GIF action extracts the first decoded frame.
+
+## QR, barcode and visible URL detection (Full)
+
+Long-press an unlocked image thumbnail or choose **Links** in media detail. KeepG combines bundled ML Kit barcode scanning and Latin text recognition. Results are normalized and only `http://` or `https://` URLs are offered to the user. Opening a result leaves KeepG and launches the user's external browser.
+
+KeepG itself still declares **no `INTERNET` permission**. It does not fetch the destination page; the browser does.
+
+## File/date repair (Full)
+
+**Repair** creates a recovered copy rather than rewriting the source in place. The repair path:
+
+- normalizes MIME/extension expectations;
+- replaces clearly invalid capture dates with a safe timestamp when requested;
+- re-encodes decodable images into a portable recovered copy;
+- remuxes compatible video tracks into MP4.
+
+Repair cannot reconstruct media payload that is already undecodable or irrecoverably corrupted. The original remains untouched when recovery fails.
+
+## Debug settings and logs
+
+Settings contains a persistent debug switch plus **View log**, **Export log**, and **Clear** actions.
+
+- active log: app-private `files/debug/keepg.log`;
+- rotates at 2 MiB to `keepg.log.1`;
+- export uses Android's document picker;
+- logs are never automatically uploaded;
+- passwords, derived keys, Android Keystore keys and decrypted Vault bytes must never be logged.
+
+See [`DEBUGGING.md`](DEBUGGING.md) for ADB/logcat procedures and editor/repair troubleshooting.
+
+## Gallery, protection and Vault
+
+Device albums remain Android-managed. KeepG Collections are non-destructive logical albums. Full edition can protect an individual photo or an entire device album with Android device authentication or a target-specific KeepG password. Unlocking is session-scoped.
+
+A KeepG lock controls visibility **inside KeepG**. It does not encrypt the original MediaStore file or stop another gallery from reading that original. For confidentiality against other apps, create a Vault copy, verify it, then remove the original using Android's normal destructive-confirmation flow.
+
+Vault copies are AES-GCM `.kgv` files in app-private storage. The key is generated in Android Keystore and is not exported to the Room database or repository.
+
+## Smart organization
 
 ```text
-MediaStore photo
+MediaStore image
   -> bitmap decode
   -> ML Kit face detection
   -> padded face crop
-  -> normalized 8x8 luminance features
+  -> normalized local visual descriptor
   -> pose + smile + eye-open signals
   -> cosine-similarity cluster matching
   -> user-correctable person group
 ```
 
-This is an organizational heuristic, **not biometric identity verification**. Similarity mistakes are possible and should be corrected by the user. `FaceDescriptor` is isolated so a future validated on-device embedding model can replace it without rewriting the UI/rule architecture.
+This is an organizational heuristic, **not biometric identity verification**. Similarity mistakes are possible and should be corrected by the user.
 
 ## Architecture
 
@@ -103,26 +154,24 @@ This is an organizational heuristic, **not biometric identity verification**. Si
 Compose UI
    │
 MainViewModel
-   ├── MediaStoreRepository ── Android MediaStore
+   ├── MediaStoreRepository ── Images + Video MediaStore
    ├── KeepGDatabase (Room)
-   │    ├── photos / collections
-   │    ├── locks
-   │    ├── faces / people
-   │    ├── smart rules
-   │    └── vault index
    ├── FaceAnalysisEngine
-   │    ├── ML Kit Face Detection
-   │    ├── FaceDescriptor
-   │    └── FaceClusterer
-   └── VaultRepository
-        └── VaultCipher ── Android Keystore AES-GCM
+   ├── AdvancedFeatureTools
+   │    ├── QR/barcode + OCR URL detection
+   │    ├── image/GIF editor
+   │    ├── background segmentation
+   │    ├── video remux editor
+   │    └── recovered-copy repair
+   ├── KeepGLog
+   └── VaultRepository ── VaultCipher ── Android Keystore AES-GCM
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for implementation boundaries and extension points.
+`AdvancedFeatureTools` has flavor-specific implementations: Full provides the advanced engine and Lite provides a small no-op boundary. See [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Security model
 
-KeepG avoids an Internet permission in the manifest, so the current application code cannot directly upload the library over the network. Security-relevant behavior is documented in detail in [`SECURITY.md`](SECURITY.md), including authentication modes, PBKDF2 parameters, AES-GCM Vault format, Android Keystore use, face metadata privacy, threat boundaries, safe operation, and key-loss behavior.
+KeepG has no app Internet permission. Security-relevant behavior is documented in [`SECURITY.md`](SECURITY.md), including authentication modes, PBKDF2 parameters, AES-GCM Vault format, Android Keystore use, face metadata privacy, threat boundaries and key-loss behavior.
 
 ## Development setup
 
@@ -134,29 +183,32 @@ KeepG avoids an Internet permission in the manifest, so the current application 
 - Gradle 8.10.2
 - Android Studio (recommended)
 
-The repository pins Gradle in GitHub Actions rather than committing a binary wrapper JAR. Configure Gradle 8.10.2 in Android Studio or install it with a trusted package/toolchain manager.
-
 ```bash
-gradle :app:assembleDebug --stacktrace
-gradle :app:testDebugUnitTest --stacktrace
-gradle :app:lintDebug --stacktrace
-gradle :app:connectedDebugAndroidTest --stacktrace
+gradle :app:lintFullDebug :app:lintLiteDebug --stacktrace
+gradle :app:testFullDebugUnitTest :app:testLiteDebugUnitTest --stacktrace
+gradle :app:assembleFullDebug :app:assembleLiteDebug --stacktrace
+gradle :app:connectedFullDebugAndroidTest :app:connectedLiteDebugAndroidTest --stacktrace
 ```
 
-Unit tests cover password hashing/verification, expression thresholds, and face-cluster similarity. Instrumentation tests cover Room persistence and an Android Keystore AES-GCM round trip. See [`DEBUGGING.md`](DEBUGGING.md) for emulator/ADB procedures and the release checklist.
+## GitHub Actions and Releases
 
-## GitHub Actions
+`.github/workflows/android.yml` verifies both editions:
 
-`.github/workflows/android.yml` runs two independent checks on pushes and pull requests targeting `main`:
+1. **build-test-lint** — Full/Lite lint, JVM tests and APK assembly.
+2. **instrumentation** — Full/Lite Android tests on an API 35 x86_64 emulator.
 
-1. **build-test-lint** — Android lint, JVM unit tests, and debug APK assembly.
-2. **instrumentation** — API 35 x86_64 emulator tests, including Room and Android Keystore coverage.
+`.github/workflows/release.yml` runs only after a successful Android CI run on `main` (or an explicit manual dispatch). It builds and attaches:
 
-Build reports and the debug APK are uploaded as CI artifacts when available.
+- Full and Lite installable debug-signed APKs;
+- universal and ABI-specific APKs when produced by AGP (`arm64-v8a`, `armeabi-v7a`, `x86_64`);
+- Full/Lite AAB bundles;
+- `SHA256SUMS.txt`.
+
+Automatic GitHub prerelease APKs deliberately use Android's test/debug signing identity so they are immediately installable for testing. AABs require a production signing/store pipeline before store distribution. No production private key is committed to this repository.
 
 ## Android permissions
 
-- `READ_MEDIA_IMAGES` on Android 13+;
+- `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` on Android 13+;
 - `READ_MEDIA_VISUAL_USER_SELECTED` on Android 14+;
 - legacy `READ_EXTERNAL_STORAGE` only through Android 12L;
 - `ACCESS_MEDIA_LOCATION` for EXIF location rules;
@@ -166,34 +218,18 @@ There is intentionally no `INTERNET` permission.
 
 ## Current limitations
 
-- Person grouping uses a lightweight local descriptor and is not intended to match the accuracy of a dedicated, validated face-embedding model.
-- The Vault action creates an encrypted copy but deliberately does not auto-delete the original MediaStore item. Destructive deletion should remain behind Android's system confirmation flow.
-- Vault preview/export UX is intentionally minimal in the initial implementation; the repository contains the decryption primitive and index needed for a guarded preview flow.
+- Actual codec support varies by Android version/OEM despite KeepG recognizing a broad extension set.
+- GIF animation is viewable where the decoder supports it, but the current editor exports a selected first-frame PNG rather than re-encoding animated GIF frames.
+- Video edit operations are lossless remux operations; incompatible source tracks require a future transcoding path.
+- Automatic background removal uses ML Kit Selfie Segmentation, which Google currently documents as beta.
+- Person grouping uses a lightweight local descriptor and is not biometric verification.
+- Vault creation does not silently delete the original MediaStore item.
 - Device-credential UX depends on Android device capabilities and policy.
-- Location rules require EXIF coordinates and permission.
 
 ## Privacy
 
 See [`PRIVACY.md`](PRIVACY.md). KeepG is accountless, has no app Internet permission, stores organization metadata locally, and treats local face descriptors as sensitive data.
 
-## Repository map
-
-```text
-app/src/main/java/com/yanagikh/keepg/
-├── MainActivity.kt
-├── MainViewModel.kt
-├── KeepGApplication.kt
-├── data/
-├── security/
-├── smart/
-└── ui/
-    ├── KeepGApp.kt
-    ├── GalleryScreens.kt
-    ├── SmartScreens.kt
-    ├── UtilityScreens.kt
-    └── Theme.kt
-```
-
 ## Verification philosophy
 
-No non-trivial gallery/security application can honestly promise that it will never contain a defect. KeepG instead keeps the verification path explicit: deterministic unit tests, Android instrumentation tests, lint, reproducible CI, a documented threat model, and a debugging checklist. Security-sensitive changes should add or update tests rather than weaken existing checks.
+No non-trivial gallery/security application can honestly promise it will never contain a defect. KeepG instead requires reproducible lint, unit tests, API-level instrumentation, explicit CI, checksummed release assets, a documented threat model and a debugging checklist. Security-sensitive changes should strengthen those checks rather than bypass them.
