@@ -13,10 +13,35 @@ android {
         applicationId = "com.yanagikh.keepg"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("full") {
+            dimension = "edition"
+            buildConfigField("boolean", "FULL_FEATURES", "true")
+            resValue("string", "app_name", "KeepG")
+        }
+        create("lite") {
+            dimension = "edition"
+            applicationIdSuffix = ".lite"
+            versionNameSuffix = "-lite"
+            buildConfigField("boolean", "FULL_FEATURES", "false")
+            resValue("string", "app_name", "KeepG Lite")
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     buildFeatures {
@@ -67,9 +92,16 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
-    implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-video:2.7.0")
+    implementation("io.coil-kt:coil-svg:2.7.0")
+
+    add("fullImplementation", "com.google.mlkit:face-detection:16.1.7")
+    add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
+    add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")
+    add("fullImplementation", "com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
