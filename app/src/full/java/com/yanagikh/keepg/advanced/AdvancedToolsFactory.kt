@@ -4,8 +4,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -47,18 +49,31 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         )
     }
 
-    override suspend fun detectExternalLinks(media: PhotoEntity): List<DetectedExternalLink> = withContext(Dispatchers.IO) {
+    override suspend fun detectExternalLinks(
+        media: PhotoEntity,
+        normalizedX: Float?,
+        normalizedY: Float?,
+    ): List<DetectedExternalLink> = withContext(Dispatchers.IO) {
         require(media.mimeType.startsWith("image/")) { "Link detection currently requires an image or GIF frame" }
         val bitmap = decodeBitmap(Uri.parse(media.uri))
         val input = InputImage.fromBitmap(bitmap, 0)
+        val pointX = normalizedX?.coerceIn(0f, 1f)?.times(bitmap.width)?.toInt()
+        val pointY = normalizedY?.coerceIn(0f, 1f)?.times(bitmap.height)?.toInt()
+        val localized = pointX != null && pointY != null
         val detected = mutableListOf<DetectedExternalLink>()
+
         barcodeScanner.process(input).await().forEach { barcode ->
+            if (localized && barcode.boundingBox?.contains(requireNotNull(pointX), requireNotNull(pointY)) != true) return@forEach
             val candidate = barcode.url?.url ?: barcode.rawValue
             normalizeWebUrl(candidate)?.let { detected += DetectedExternalLink(it, "QR/barcode") }
         }
-        val text = textRecognizer.process(input).await().text
-        URL_REGEX.findAll(text).forEach { match ->
-            normalizeWebUrl(match.value)?.let { detected += DetectedExternalLink(it, "visible text") }
+
+        val recognized = textRecognizer.process(input).await()
+        recognized.textBlocks.flatMap { it.lines }.forEach { line ->
+            if (localized && line.boundingBox?.contains(requireNotNull(pointX), requireNotNull(pointY)) != true) return@forEach
+            URL_REGEX.findAll(line.text).forEach { match ->
+                normalizeWebUrl(match.value)?.let { detected += DetectedExternalLink(it, "visible text") }
+            }
         }
         detected.distinctBy { it.value }
     }
@@ -69,6 +84,49 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
             media.mimeType.startsWith("image/") -> editImage(media, operation, strength)
             else -> error("Unsupported media type: ${media.mimeType}")
         }
+    }
+
+    override suspend fun editAdvanced(media: PhotoEntity, request: AdvancedEditRequest): String = withContext(Dispatchers.IO) {
+        require(media.mimeType.startsWith("image/")) { "The layer editor currently exports image and GIF frames" }
+        var source = decodeBitmap(Uri.parse(media.uri))
+        source = when (request.backgroundRemoval) {
+            BackgroundRemovalMode.NONE -> source
+            BackgroundRemovalMode.AUTO -> autoRemoveBackground(source)
+            BackgroundRemovalMode.MANUAL -> manualRemoveBackground(source, request.backgroundStrength.coerceIn(0.05f, 0.95f))
+        }
+
+        val left = (request.cropLeft.coerceIn(0f, 0.95f) * source.width).toInt()
+        val top = (request.cropTop.coerceIn(0f, 0.95f) * source.height).toInt()
+        val right = (request.cropRight.coerceIn(request.cropLeft + 0.02f, 1f) * source.width).toInt().coerceAtMost(source.width)
+        val bottom = (request.cropBottom.coerceIn(request.cropTop + 0.02f, 1f) * source.height).toInt().coerceAtMost(source.height)
+        val cropped = Bitmap.createBitmap(source, left, top, (right - left).coerceAtLeast(1), (bottom - top).coerceAtLeast(1))
+        val output = Bitmap.createBitmap(cropped.width, cropped.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val matrix = Matrix().apply {
+            postTranslate(-cropped.width / 2f, -cropped.height / 2f)
+            postScale(request.scale.coerceIn(0.05f, 20f), request.scale.coerceIn(0.05f, 20f))
+            postRotate(request.rotation)
+            postTranslate(
+                cropped.width / 2f + request.offsetX.coerceIn(-2f, 2f) * cropped.width,
+                cropped.height / 2f + request.offsetY.coerceIn(-2f, 2f) * cropped.height,
+            )
+        }
+        canvas.drawBitmap(cropped, matrix, imagePaint)
+        request.textLayers.filter { it.text.isNotBlank() }.forEach { layer ->
+            val x = layer.x.coerceIn(-1f, 2f) * output.width
+            val y = layer.y.coerceIn(-1f, 2f) * output.height
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = (output.width.coerceAtMost(output.height) * 0.075f * layer.scale.coerceIn(0.2f, 5f)).coerceAtLeast(16f)
+                setShadowLayer(max(2f, textSize * 0.04f), 0f, max(1f, textSize * 0.02f), Color.BLACK)
+            }
+            canvas.save()
+            canvas.rotate(layer.rotation, x, y)
+            canvas.drawText(layer.text.take(120), x, y, paint)
+            canvas.restore()
+        }
+        saveBitmapNamed(output, request.outputName, sanitizeTimestamp(media.dateTaken)).toString()
     }
 
     override suspend fun repair(media: PhotoEntity, preferredTimestamp: Long?): RepairReport = withContext(Dispatchers.IO) {
@@ -183,8 +241,17 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         val base = originalName.substringBeforeLast('.', originalName).take(80)
         val mime = if (preserveAlpha) "image/png" else "image/jpeg"
         val extension = if (preserveAlpha) "png" else "jpg"
+        return saveBitmapInternal(bitmap, "${base}_$suffix.$extension", mime, preserveAlpha, dateTaken)
+    }
+
+    private fun saveBitmapNamed(bitmap: Bitmap, requestedName: String, dateTaken: Long): Uri {
+        val base = sanitizeDisplayName(requestedName).ifBlank { "KeepG_edit" }.substringBeforeLast('.', requestedName).take(100)
+        return saveBitmapInternal(bitmap, "$base.png", "image/png", true, dateTaken)
+    }
+
+    private fun saveBitmapInternal(bitmap: Bitmap, displayName: String, mime: String, png: Boolean, dateTaken: Long): Uri {
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "${base}_$suffix.$extension")
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, mime)
             put(MediaStore.Images.Media.DATE_TAKEN, dateTaken)
             if (Build.VERSION.SDK_INT >= 29) put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KeepG")
@@ -193,7 +260,7 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         runCatching {
             context.contentResolver.openOutputStream(uri, "w").use { output ->
                 requireNotNull(output)
-                val format = if (preserveAlpha) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                val format = if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                 check(bitmap.compress(format, 94, output)) { "Image encoder failed" }
             }
         }.onFailure { context.contentResolver.delete(uri, null, null) }.getOrThrow()
@@ -276,6 +343,8 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         val earliest = 631_152_000_000L
         return if (value in earliest..(now + 86_400_000L)) value else now
     }
+
+    private fun sanitizeDisplayName(value: String): String = value.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").take(110)
 
     private fun normalizeWebUrl(raw: String?): String? {
         val trimmed = raw?.trim()?.trimEnd('.', ',', ';', ')', ']', '}') ?: return null

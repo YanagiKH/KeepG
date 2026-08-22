@@ -1,8 +1,10 @@
 package com.yanagikh.keepg.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -18,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.yanagikh.keepg.MainViewModel
 import com.yanagikh.keepg.data.*
 
-private enum class Tab(val label: String, val icon: ImageVector) {
+private enum class Tab(val labelKey: String, val icon: ImageVector) {
     PHOTOS("Photos", Icons.Default.PhotoLibrary),
     ALBUMS("Albums", Icons.Default.Folder),
     SMART("Smart", Icons.Default.AutoAwesome),
@@ -37,6 +39,7 @@ fun KeepGApp(
 ) {
     val context = LocalContext.current
     val photos by viewModel.photos.collectAsState()
+    val visiblePhotos by viewModel.visiblePhotos.collectAsState()
     val locks by viewModel.locks.collectAsState()
     val faces by viewModel.faces.collectAsState()
     val people by viewModel.people.collectAsState()
@@ -49,251 +52,341 @@ fun KeepGApp(
     val message by viewModel.message.collectAsState()
     val detectedLinks by viewModel.detectedLinks.collectAsState()
     val debugEnabled by viewModel.debugEnabled.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val favorites by viewModel.favorites.collectAsState()
+    val selectedIds by viewModel.selectedMediaIds.collectAsState()
+    val selectedPhotos by viewModel.selectedPhotos.collectAsState()
+    val query by viewModel.searchQuery.collectAsState()
+    val typeFilter by viewModel.typeFilter.collectAsState()
+    val sizeFilter by viewModel.sizeFilter.collectAsState()
+    val extensionFilter by viewModel.extensionFilter.collectAsState()
     val fullFeatures = viewModel.fullFeatures
 
-    val tabs = if (fullFeatures) Tab.entries else listOf(Tab.PHOTOS, Tab.ALBUMS, Tab.SETTINGS)
-    var tab by remember { mutableStateOf(Tab.PHOTOS) }
-    var photoDetail by remember { mutableStateOf<PhotoEntity?>(null) }
-    var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
-    var unlockPassword by remember { mutableStateOf("") }
-    var lockTarget by remember { mutableStateOf<LockTarget?>(null) }
-    var passwordTarget by remember { mutableStateOf<LockTarget?>(null) }
-    var newPassword by remember { mutableStateOf("") }
-    var localMessage by remember { mutableStateOf<String?>(null) }
-    val snackbar = remember { SnackbarHostState() }
+    CompositionLocalProvider(LocalAppLanguage provides settings.language) {
+        val tabs = if (fullFeatures) Tab.entries else listOf(Tab.PHOTOS, Tab.ALBUMS, Tab.SETTINGS)
+        val incorrectPasswordMessage = tr("Incorrect password")
+        val minimumPasswordMessage = tr("Use at least 6 characters")
+        var tab by remember { mutableStateOf(Tab.PHOTOS) }
+        var preview by remember { mutableStateOf<PhotoEntity?>(null) }
+        var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
+        var pendingPreviewAfterUnlock by remember { mutableStateOf<PhotoEntity?>(null) }
+        var unlockPassword by remember { mutableStateOf("") }
+        var lockTarget by remember { mutableStateOf<LockTarget?>(null) }
+        var passwordTarget by remember { mutableStateOf<LockTarget?>(null) }
+        var newPassword by remember { mutableStateOf("") }
+        var localMessage by remember { mutableStateOf<String?>(null) }
+        var batchShare by remember { mutableStateOf(false) }
+        var batchDelete by remember { mutableStateOf(false) }
+        val snackbar = remember { SnackbarHostState() }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
-    val logExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        uri?.let(viewModel::exportDebugLog)
-    }
-
-    LaunchedEffect(Unit) { permissionLauncher.launch(mediaPermissions) }
-    LaunchedEffect(message, localMessage) {
-        (localMessage ?: message)?.let {
-            snackbar.showSnackbar(it)
-            localMessage = null
-            viewModel.clearMessage()
-        }
-    }
-
-    fun unlock(lock: LockEntity, after: () -> Unit = {}) {
-        if (lock.authType == "DEVICE") {
-            requestDeviceAuthentication(
-                "Unlock protected media",
-                { viewModel.unlockForSession(lock); after() },
-                { localMessage = it },
-            )
-        } else {
-            unlockLock = lock
-            unlockPassword = ""
-        }
-    }
-
-    fun openPhoto(photo: PhotoEntity) {
-        if (!fullFeatures) {
-            photoDetail = photo
-            return
-        }
-        val lock = findLock(photo, locks)
-        when {
-            lock == null || isUnlocked(lock, unlocked) -> photoDetail = photo
-            else -> unlock(lock) { photoDetail = photo }
-        }
-    }
-
-    fun scanLinks(photo: PhotoEntity) {
-        if (fullFeatures) viewModel.detectLinks(photo)
-    }
-
-    fun openExternal(url: String) {
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onFailure { localMessage = "No browser could open this link" }
-    }
-
-    fun openVideo(photo: PhotoEntity) {
-        runCatching {
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(Uri.parse(photo.uri), photo.mimeType)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
+        val logExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(viewModel::exportDebugLog) }
+        val removalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                preview = null
+                viewModel.clearSelection()
+                viewModel.refresh()
+            } else {
+                localMessage = "Delete request cancelled"
             }
-            context.startActivity(intent)
-        }.onFailure { localMessage = "No compatible video player is installed" }
-    }
+        }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
-                            Box(contentAlignment = Alignment.Center) { Text("K", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black) }
+        LaunchedEffect(Unit) { permissionLauncher.launch(mediaPermissions) }
+        LaunchedEffect(message, localMessage) {
+            (localMessage ?: message)?.let {
+                snackbar.showSnackbar(it)
+                localMessage = null
+                viewModel.clearMessage()
+            }
+        }
+
+        fun unlock(lock: LockEntity, afterPreview: PhotoEntity? = null) {
+            if (lock.authType == "DEVICE") {
+                requestDeviceAuthentication(
+                    "Unlock protected media",
+                    {
+                        viewModel.unlockForSession(lock)
+                        afterPreview?.let { preview = it }
+                    },
+                    { localMessage = it },
+                )
+            } else {
+                unlockLock = lock
+                pendingPreviewAfterUnlock = afterPreview
+                unlockPassword = ""
+            }
+        }
+
+        fun openMedia(media: PhotoEntity) {
+            val lock = if (fullFeatures) findLock(media, locks) else null
+            when {
+                lock == null || isUnlocked(lock, unlocked) -> preview = media
+                else -> unlock(lock, media)
+            }
+        }
+
+        fun shareMedia(media: List<PhotoEntity>, password: String?) {
+            if (media.isEmpty()) return
+            viewModel.prepareShare(media, password) { chooser ->
+                runCatching { context.startActivity(chooser) }
+                    .onFailure { localMessage = "No compatible share target is available" }
+            }
+        }
+
+        fun removeMedia(media: List<PhotoEntity>) {
+            if (media.isEmpty()) return
+            val sender = viewModel.createRemovalIntentSender(media)
+            if (sender != null) {
+                removalLauncher.launch(IntentSenderRequest.Builder(sender).build())
+            } else {
+                preview = null
+                viewModel.removeLegacy(media)
+            }
+        }
+
+        fun openExternal(url: String) {
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                .onFailure { localMessage = "No browser could open this link" }
+        }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
+                                Box(contentAlignment = Alignment.Center) { Text("K", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black) }
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(if (fullFeatures) "KeepG" else "KeepG Lite", fontWeight = FontWeight.Bold)
                         }
-                        Spacer(Modifier.width(10.dp))
-                        Text(if (fullFeatures) "KeepG" else "KeepG Lite", fontWeight = FontWeight.Bold)
+                    },
+                    actions = {
+                        if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, tr("Refresh")) }
+                    },
+                )
+            },
+            bottomBar = {
+                NavigationBar {
+                    tabs.forEach { item ->
+                        NavigationBarItem(
+                            selected = tab == item,
+                            onClick = { tab = item; viewModel.clearSelection() },
+                            icon = { Icon(item.icon, tr(item.labelKey)) },
+                            label = { Text(tr(item.labelKey)) },
+                        )
                     }
-                },
-                actions = {
-                    if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                    IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, "Refresh") }
-                },
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                tabs.forEach { item ->
-                    NavigationBarItem(
-                        selected = tab == item,
-                        onClick = { tab = item },
-                        icon = { Icon(item.icon, item.label) },
-                        label = { Text(item.label) },
+                }
+            },
+            snackbarHost = { SnackbarHost(snackbar) },
+        ) { padding ->
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                when (tab) {
+                    Tab.PHOTOS -> LibraryScreen(
+                        photos = visiblePhotos,
+                        locks = locks,
+                        unlocked = unlocked,
+                        favorites = favorites,
+                        selectedIds = selectedIds,
+                        settings = settings,
+                        query = query,
+                        typeFilter = typeFilter,
+                        sizeFilter = sizeFilter,
+                        extensionFilter = extensionFilter,
+                        onQuery = viewModel::setSearchQuery,
+                        onTypeFilter = viewModel::setTypeFilter,
+                        onSizeFilter = viewModel::setSizeFilter,
+                        onExtensionFilter = viewModel::setExtensionFilter,
+                        onSort = viewModel::setSortMode,
+                        onSortDescending = viewModel::setSortDescending,
+                        onGridColumns = viewModel::setGridColumns,
+                        onPhoto = ::openMedia,
+                        onToggleSelection = viewModel::toggleSelection,
+                        onClearSelection = viewModel::clearSelection,
+                        onFavoriteSelected = viewModel::favoriteSelected,
+                        onShareSelected = { if (selectedPhotos.isNotEmpty()) batchShare = true },
+                        onDeleteSelected = { if (selectedPhotos.isNotEmpty()) batchDelete = true },
+                    )
+                    Tab.ALBUMS -> AlbumsScreen(
+                        photos = visiblePhotos,
+                        locks = locks,
+                        unlocked = unlocked,
+                        collections = collections,
+                        collectionItems = collectionItems,
+                        favorites = favorites,
+                        selectedIds = selectedIds,
+                        settings = settings,
+                        onPhoto = ::openMedia,
+                        onToggleSelection = viewModel::toggleSelection,
+                        onGridColumns = viewModel::setGridColumns,
+                        onCreateCollection = viewModel::createCollection,
+                        onLockAlbum = { id, name -> lockTarget = LockTarget("ALBUM", id.toString(), name) },
+                        onUnlock = { unlock(it) },
+                        allowProtection = fullFeatures,
+                    )
+                    Tab.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
+                    Tab.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
+                    Tab.SETTINGS -> GallerySettingsScreen(
+                        photoCount = photos.size,
+                        faceCount = faces.size,
+                        lockCount = locks.size,
+                        fullFeatures = fullFeatures,
+                        debugEnabled = debugEnabled,
+                        settings = settings,
+                        hasDeletionPassword = viewModel.hasDeletionPassword(),
+                        onVideoPreviewAutoPlay = viewModel::setVideoPreviewAutoPlay,
+                        onDeleteToTrash = viewModel::setDeleteToTrash,
+                        onHideSensitiveContent = viewModel::setHideSensitiveContent,
+                        onLanguage = viewModel::setLanguage,
+                        onDeletionPassword = viewModel::setDeletionPassword,
+                        onDebugEnabled = viewModel::setDebugEnabled,
+                        onPermissions = { permissionLauncher.launch(mediaPermissions) },
+                        onExportLog = { logExportLauncher.launch("keepg-debug.log") },
+                        onClearLog = viewModel::clearDebugLog,
+                        onShowLog = viewModel::debugSnapshot,
                     )
                 }
             }
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                Tab.PHOTOS -> PhotoGrid(photos, locks, unlocked, ::openPhoto, ::scanLinks)
-                Tab.ALBUMS -> AlbumsScreen(
-                    photos = photos,
-                    locks = locks,
-                    unlocked = unlocked,
-                    collections = collections,
-                    collectionItems = collectionItems,
-                    onPhoto = ::openPhoto,
-                    onLongPress = ::scanLinks,
-                    onCreateCollection = viewModel::createCollection,
-                    onLockAlbum = { id, name -> lockTarget = LockTarget("ALBUM", id.toString(), name) },
-                    onUnlock = ::unlock,
-                    allowProtection = fullFeatures,
-                )
-                Tab.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
-                Tab.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
-                Tab.SETTINGS -> SettingsScreen(
-                    photoCount = photos.size,
-                    faceCount = faces.size,
-                    lockCount = locks.size,
-                    fullFeatures = fullFeatures,
-                    debugEnabled = debugEnabled,
-                    onDebugEnabled = viewModel::setDebugEnabled,
-                    onPermissions = { permissionLauncher.launch(mediaPermissions) },
-                    onExportLog = { logExportLauncher.launch("keepg-debug.log") },
-                    onClearLog = viewModel::clearDebugLog,
-                    onShowLog = viewModel::debugSnapshot,
-                )
+        }
+
+        preview?.let { media ->
+            MediaPreviewDialog(
+                photo = media,
+                lock = findLock(media, locks),
+                collections = collections,
+                isFavorite = media.mediaId in favorites,
+                fullFeatures = fullFeatures,
+                onDismiss = { preview = null },
+                onFavorite = { viewModel.toggleFavorite(media.mediaId) },
+                onShare = { password -> shareMedia(listOf(media), password) },
+                onDelete = { removeMedia(listOf(media)) },
+                hasDeletionPassword = viewModel.hasDeletionPassword(),
+                verifyDeletionPassword = viewModel::verifyDeletionPassword,
+                setDeletionPassword = viewModel::setDeletionPassword,
+                onLock = { lockTarget = LockTarget("PHOTO", media.mediaId.toString(), media.displayName, media) },
+                onRemoveLock = viewModel::removeLock,
+                onVault = { viewModel.importToVault(media) },
+                onAnalyze = { viewModel.analyze(media) },
+                onCollection = { viewModel.addToCollection(it, media.mediaId) },
+                onEdit = { operation, strength -> viewModel.editMedia(media, operation, strength) },
+                onAdvancedEdit = { request -> viewModel.editAdvanced(media, request) },
+                onDetectLinks = { x, y -> viewModel.detectLinks(media, x, y) },
+                onRepair = { useCurrentTime -> viewModel.repairMedia(media, useCurrentTime) },
+                onRename = { newName -> viewModel.renameMedia(media, newName) },
+            )
+        }
+
+        if (batchShare) {
+            ShareDialog({ batchShare = false }) { password ->
+                batchShare = false
+                shareMedia(selectedPhotos, password)
             }
         }
-    }
+        if (batchDelete) {
+            DeletePasswordDialog(
+                hasPassword = viewModel.hasDeletionPassword(),
+                verify = viewModel::verifyDeletionPassword,
+                setPassword = viewModel::setDeletionPassword,
+                onDismiss = { batchDelete = false },
+                onAuthorized = {
+                    batchDelete = false
+                    removeMedia(selectedPhotos)
+                },
+            )
+        }
 
-    photoDetail?.let { photo ->
-        PhotoDialog(
-            photo = photo,
-            lock = findLock(photo, locks),
-            collections = collections,
-            fullFeatures = fullFeatures,
-            onDismiss = { photoDetail = null },
-            onLock = { lockTarget = LockTarget("PHOTO", photo.mediaId.toString(), photo.displayName, photo) },
-            onRemoveLock = viewModel::removeLock,
-            onVault = { viewModel.importToVault(photo) },
-            onAnalyze = { viewModel.analyze(photo) },
-            onCollection = { viewModel.addToCollection(it, photo.mediaId) },
-            onEdit = { operation, strength -> viewModel.editMedia(photo, operation, strength) },
-            onDetectLinks = { viewModel.detectLinks(photo) },
-            onRepair = { useCurrentTime -> viewModel.repairMedia(photo, useCurrentTime) },
-            onOpenVideo = { openVideo(photo) },
-        )
-    }
-
-    if (detectedLinks.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = viewModel::clearDetectedLinks,
-            title = { Text("Links found") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("KeepG detected these HTTP(S) links. Opening a link leaves KeepG and uses your external browser.")
-                    detectedLinks.forEach { link ->
-                        OutlinedButton({ openExternal(link.value) }, Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.OpenInBrowser, null)
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(link.value, maxLines = 2)
-                                Text(link.source, style = MaterialTheme.typography.labelSmall)
+        if (detectedLinks.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = viewModel::clearDetectedLinks,
+                title = { Text(tr("Links found")) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("KeepG detected these HTTP(S) links. Opening a link leaves KeepG and uses your external browser.")
+                        detectedLinks.forEach { link ->
+                            OutlinedButton({ openExternal(link.value) }, Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.OpenInBrowser, null)
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(link.value, maxLines = 2)
+                                    Text(link.source, style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
-                }
-            },
-            confirmButton = { TextButton(viewModel::clearDetectedLinks) { Text("Close") } },
-        )
-    }
+                },
+                confirmButton = { TextButton(viewModel::clearDetectedLinks) { Text(tr("Close")) } },
+            )
+        }
 
-    unlockLock?.let { lock ->
-        PasswordDialog(
-            "Unlock protected media",
-            unlockPassword,
-            { unlockPassword = it },
-            "Unlock",
-            {
-                if (viewModel.verifyPassword(lock, unlockPassword)) {
-                    viewModel.unlockForSession(lock)
-                    unlockLock = null
-                    unlockPassword = ""
-                } else localMessage = "Incorrect password"
-            },
-            { unlockLock = null },
-        )
-    }
+        unlockLock?.let { lock ->
+            PasswordDialog(
+                "Unlock protected media",
+                unlockPassword,
+                { unlockPassword = it },
+                tr("Unlock"),
+                {
+                    if (viewModel.verifyPassword(lock, unlockPassword)) {
+                        viewModel.unlockForSession(lock)
+                        pendingPreviewAfterUnlock?.let { preview = it }
+                        pendingPreviewAfterUnlock = null
+                        unlockLock = null
+                        unlockPassword = ""
+                    } else localMessage = incorrectPasswordMessage
+                },
+                { unlockLock = null; pendingPreviewAfterUnlock = null },
+            )
+        }
 
-    lockTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { lockTarget = null },
-            title = { Text("Protect ${target.label}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Choose a KeepG unlock method.")
-                    FilledTonalButton(
-                        {
-                            requestDeviceAuthentication(
-                                "Confirm device lock",
-                                {
-                                    if (target.type == "PHOTO") viewModel.lockPhotoWithDevice(requireNotNull(target.photo))
-                                    else viewModel.lockAlbumWithDevice(target.id.toLong())
-                                    lockTarget = null
-                                },
-                                { localMessage = it },
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential") }
-                    OutlinedButton(
-                        { passwordTarget = target; newPassword = ""; lockTarget = null },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password") }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton({ lockTarget = null }) { Text("Cancel") } },
-        )
-    }
+        lockTarget?.let { target ->
+            AlertDialog(
+                onDismissRequest = { lockTarget = null },
+                title = { Text("Protect ${target.label}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Choose a KeepG unlock method.")
+                        FilledTonalButton(
+                            {
+                                requestDeviceAuthentication(
+                                    "Confirm device lock",
+                                    {
+                                        if (target.type == "PHOTO") viewModel.lockPhotoWithDevice(requireNotNull(target.photo))
+                                        else viewModel.lockAlbumWithDevice(target.id.toLong())
+                                        lockTarget = null
+                                    },
+                                    { localMessage = it },
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential") }
+                        OutlinedButton(
+                            { passwordTarget = target; newPassword = ""; lockTarget = null },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password") }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton({ lockTarget = null }) { Text(tr("Cancel")) } },
+            )
+        }
 
-    passwordTarget?.let { target ->
-        PasswordDialog(
-            "Set password for ${target.label}",
-            newPassword,
-            { newPassword = it },
-            "Protect",
-            {
-                if (newPassword.length < 6) localMessage = "Use at least 6 characters"
-                else {
-                    if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword)
-                    else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
-                    passwordTarget = null
-                    newPassword = ""
-                }
-            },
-            { passwordTarget = null },
-        )
+        passwordTarget?.let { target ->
+            PasswordDialog(
+                "Set password for ${target.label}",
+                newPassword,
+                { newPassword = it },
+                tr("Protect"),
+                {
+                    if (newPassword.length < 6) localMessage = minimumPasswordMessage
+                    else {
+                        if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword)
+                        else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
+                        passwordTarget = null
+                        newPassword = ""
+                    }
+                },
+                { passwordTarget = null },
+            )
+        }
     }
 }
