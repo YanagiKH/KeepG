@@ -128,12 +128,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun exportDebugLog(destination: Uri) = launchTask("Debug log exported") {
-        container.log.exportTo(container.database.openHelper.writableDatabase.path?.let { null } ?: throw IllegalStateException())
-    }
-
-    fun exportDebugLogTo(destination: Uri) = launchTask("Debug log exported") {
-        val resolverField = AppGlobals.contentResolver
-        container.log.exportTo(resolverField, destination)
+        container.log.exportTo(destination)
     }
 
     fun clearDebugLog() {
