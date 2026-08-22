@@ -23,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -75,9 +74,7 @@ internal fun LibraryScreen(
             onValueChange = onQuery,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
             leadingIcon = { Icon(Icons.Default.Search, null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) IconButton({ onQuery("") }) { Icon(Icons.Default.Clear, null) }
-            },
+            trailingIcon = { if (query.isNotEmpty()) IconButton({ onQuery("") }) { Icon(Icons.Default.Clear, null) } },
             placeholder = { Text(tr("Search media and albums")) },
             singleLine = true,
         )
@@ -93,13 +90,7 @@ internal fun LibraryScreen(
             if (sizeFilter != MediaSizeFilter.ANY) InputChip(true, { onSizeFilter(MediaSizeFilter.ANY) }, { Text(tr(sizeLabel(sizeFilter))) })
         }
         if (selectedIds.isNotEmpty()) {
-            SelectionBar(
-                selectedIds.size,
-                onClearSelection,
-                onFavoriteSelected,
-                onShareSelected,
-                onDeleteSelected,
-            )
+            SelectionBar(selectedIds.size, onClearSelection, onFavoriteSelected, onShareSelected, onDeleteSelected)
         }
         PhotoGrid(
             photos = photos,
@@ -121,16 +112,11 @@ internal fun LibraryScreen(
             title = { Text(tr("Filters")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(tr("All"), style = MaterialTheme.typography.labelLarge)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        MediaTypeFilter.entries.forEach { type ->
-                            FilterChip(typeFilter == type, { onTypeFilter(type) }, { Text(tr(typeLabel(type))) })
-                        }
+                        MediaTypeFilter.entries.forEach { type -> FilterChip(typeFilter == type, { onTypeFilter(type) }, { Text(tr(typeLabel(type))) }) }
                     }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        MediaSizeFilter.entries.forEach { size ->
-                            FilterChip(sizeFilter == size, { onSizeFilter(size) }, { Text(tr(sizeLabel(size))) })
-                        }
+                        MediaSizeFilter.entries.forEach { size -> FilterChip(sizeFilter == size, { onSizeFilter(size) }, { Text(tr(sizeLabel(size))) }) }
                     }
                     OutlinedTextField(
                         extensionFilter,
@@ -151,9 +137,7 @@ internal fun LibraryScreen(
             title = { Text(tr("Sort")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MediaSortMode.entries.forEach { mode ->
-                        FilterChip(settings.sortMode == mode, { onSort(mode) }, { Text(tr(sortLabel(mode))) })
-                    }
+                    MediaSortMode.entries.forEach { mode -> FilterChip(settings.sortMode == mode, { onSort(mode) }, { Text(tr(sortLabel(mode))) }) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (settings.sortDescending) tr("Descending") else tr("Ascending"), Modifier.weight(1f))
                         Switch(settings.sortDescending, onSortDescending)
@@ -166,13 +150,7 @@ internal fun LibraryScreen(
 }
 
 @Composable
-private fun SelectionBar(
-    count: Int,
-    onClear: () -> Unit,
-    onFavorite: () -> Unit,
-    onShare: () -> Unit,
-    onDelete: () -> Unit,
-) {
+private fun SelectionBar(count: Int, onClear: () -> Unit, onFavorite: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClear) { Icon(Icons.Default.Close, tr("Clear selection")) }
@@ -209,20 +187,20 @@ internal fun PhotoGrid(
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 var accumulated = 1f
-                do {
-                    val event = awaitPointerEvent()
-                    if (event.changes.size >= 2) {
-                        accumulated *= event.calculateZoom()
+                while (true) {
+                    val pointerEvent = awaitPointerEvent()
+                    if (pointerEvent.changes.size >= 2) {
+                        accumulated *= pointerEvent.calculateZoom()
                         val now = System.currentTimeMillis()
-                        if (now - lastColumnChange > 180L && abs(accumulated - 1f) > 0.14f) {
-                            val next = if (accumulated > 1f) columns - 1 else columns + 1
-                            onGridColumns(next.coerceIn(2, 8))
+                        if (now - lastColumnChange > 180L && abs(accumulated - 1f) > .14f) {
+                            onGridColumns((if (accumulated > 1f) columns - 1 else columns + 1).coerceIn(2, 8))
                             lastColumnChange = now
                             accumulated = 1f
                         }
-                        event.changes.forEach { it.consume() }
+                        pointerEvent.changes.forEach { it.consume() }
                     }
-                } while (event.changes.any { it.pressed })
+                    if (pointerEvent.changes.none { it.pressed }) break
+                }
             }
         },
         contentPadding = PaddingValues(6.dp),
@@ -234,26 +212,21 @@ internal fun PhotoGrid(
             val visible = lock == null || isUnlocked(lock, unlocked)
             val selected = photo.mediaId in selectedIds
             Box(
-                Modifier
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                Modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
                     .combinedClickable(
                         onClick = { onPhoto(photo) },
                         onLongClick = { if (visible) onLongPress(photo) else onPhoto(photo) },
                     )
             ) {
                 if (visible) {
-                    if (photo.mimeType.startsWith("video/") && autoPlayVideos) {
-                        InlineVideoPreview(photo, Modifier.fillMaxSize())
-                    } else {
-                        AsyncImage(Uri.parse(photo.uri), photo.displayName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    }
+                    if (photo.mimeType.startsWith("video/") && autoPlayVideos) InlineVideoPreview(photo, Modifier.fillMaxSize())
+                    else AsyncImage(Uri.parse(photo.uri), photo.displayName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+
                     if (photo.mimeType.startsWith("video/")) {
                         Surface(
                             modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
                             shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = .78f),
                         ) {
                             Row(Modifier.padding(horizontal = 5.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, "Video", Modifier.size(16.dp))
@@ -265,12 +238,10 @@ internal fun PhotoGrid(
                         Surface(
                             modifier = Modifier.align(Alignment.BottomStart).padding(5.dp),
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = .78f),
                         ) { Text("GIF", Modifier.padding(horizontal = 5.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) }
                     }
-                    if (photo.mediaId in favorites) {
-                        Icon(Icons.Default.Favorite, null, Modifier.align(Alignment.TopEnd).padding(5.dp), tint = MaterialTheme.colorScheme.primary)
-                    }
+                    if (photo.mediaId in favorites) Icon(Icons.Default.Favorite, null, Modifier.align(Alignment.TopEnd).padding(5.dp), tint = MaterialTheme.colorScheme.primary)
                     if (selected) {
                         Surface(Modifier.align(Alignment.TopStart).padding(5.dp), shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary) {
                             Icon(Icons.Default.Check, null, Modifier.padding(3.dp).size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
@@ -313,6 +284,7 @@ private fun InlineVideoPreview(photo: PhotoEntity, modifier: Modifier = Modifier
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AlbumsScreen(
     photos: List<PhotoEntity>,
@@ -375,8 +347,10 @@ internal fun AlbumsScreen(
         }
     } else {
         val normalizedQuery = albumQuery.trim().lowercase(Locale.ROOT)
-        val albums = photos.groupBy { it.bucketId }.values.filter { it.isNotEmpty() && (normalizedQuery.isBlank() || it.first().bucketName.lowercase(Locale.ROOT).contains(normalizedQuery)) }
-        val visibleCollections = collections.filter { normalizedQuery.isBlank() || it.name.lowercase(Locale.ROOT).contains(normalizedQuery) }
+        val albums = photos.groupBy { it.bucketId }.values.filter {
+            it.isNotEmpty() && (normalizedQuery.isBlank() || fuzzyContains(it.first().bucketName, normalizedQuery))
+        }
+        val visibleCollections = collections.filter { normalizedQuery.isBlank() || fuzzyContains(it.name, normalizedQuery) }
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
                 OutlinedTextField(
@@ -404,7 +378,7 @@ internal fun AlbumsScreen(
             }
             items(visibleCollections, key = { "c-${it.id}" }) { collection ->
                 ListItem(
-                    { Text(collection.name) },
+                    headlineContent = { Text(collection.name) },
                     supportingContent = { Text("${collectionItems.count { it.collectionId == collection.id }} items") },
                     leadingContent = { Icon(Icons.Default.Collections, null) },
                     modifier = Modifier.combinedClickable(onClick = { collectionId = collection.id }, onLongClick = {}),
@@ -443,6 +417,14 @@ internal fun AlbumsScreen(
             dismissButton = { TextButton({ create = false }) { Text(tr("Cancel")) } },
         )
     }
+}
+
+private fun fuzzyContains(text: String, query: String): Boolean {
+    val normalized = text.lowercase(Locale.ROOT)
+    if (normalized.contains(query)) return true
+    var index = 0
+    normalized.forEach { c -> if (index < query.length && c == query[index]) index++ }
+    return index == query.length
 }
 
 private fun typeLabel(type: MediaTypeFilter) = when (type) {
