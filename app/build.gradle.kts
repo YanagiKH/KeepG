@@ -24,14 +24,12 @@ android {
         create("full") {
             dimension = "edition"
             buildConfigField("boolean", "FULL_FEATURES", "true")
-            resValue("string", "app_name", "KeepG")
         }
         create("lite") {
             dimension = "edition"
             applicationIdSuffix = ".lite"
             versionNameSuffix = "-lite"
             buildConfigField("boolean", "FULL_FEATURES", "false")
-            resValue("string", "app_name", "KeepG Lite")
         }
     }
 
@@ -62,9 +60,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 
     lint {
         abortOnError = true
