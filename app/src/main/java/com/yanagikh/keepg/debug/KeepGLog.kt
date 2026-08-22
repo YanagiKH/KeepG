@@ -1,6 +1,5 @@
 package com.yanagikh.keepg.debug
 
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -29,12 +28,10 @@ class KeepGLog(private val context: Context) {
         return logFile.readLines().takeLast(maxLines).joinToString("\n")
     }
 
-    fun exportTo(resolver: ContentResolver, destination: Uri) {
-        destination.let { uri ->
-            resolver.openOutputStream(uri, "w").use { output ->
-                requireNotNull(output) { "Unable to open debug log destination" }
-                if (logFile.exists()) logFile.inputStream().use { it.copyTo(output) }
-            }
+    fun exportTo(destination: Uri) {
+        context.contentResolver.openOutputStream(destination, "w").use { output ->
+            requireNotNull(output) { "Unable to open debug log destination" }
+            if (logFile.exists()) logFile.inputStream().use { it.copyTo(output) }
         }
     }
 
