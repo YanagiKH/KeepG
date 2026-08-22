@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="260" viewBox="0 0 1000 260" role="img" aria-labelledby="title desc">
+  <title id="title">KeepG logo</title><desc id="desc">KeepG wordmark with a protected photo mark.</desc>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs>
+  <rect width="1000" height="260" rx="40" fill="#0f172a"/>
+  <rect x="62" y="48" width="164" height="164" rx="38" fill="url(#g)"/>
+  <path d="M98 88h24v46l42-46h31l-50 52 54 62h-32l-45-53v53H98z" fill="#fff"/>
+  <circle cx="190" cy="178" r="24" fill="#14b8a6"/><path d="M180 178l7 7 14-17" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="278" y="164" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="116" font-weight="800" fill="#f8fafc" letter-spacing="-4">KeepG</text>
+  <text x="284" y="207" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" fill="#94a3b8">private • organized • on-device</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="t d">
+<title id="t">KeepG library demo</title><desc id="d">Concept demo of the KeepG photo grid with protected items.</desc>
+<rect width="1200" height="760" fill="#e5e7eb"/><rect x="250" y="30" width="700" height="700" rx="42" fill="#fafafa" stroke="#cbd5e1" stroke-width="3"/>
+<rect x="250" y="30" width="700" height="88" rx="42" fill="#fff"/><rect x="276" y="57" width="38" height="38" rx="10" fill="#6d28d9"/><text x="288" y="85" font-family="Arial" font-weight="800" font-size="24" fill="#fff">K</text><text x="330" y="86" font-family="Arial" font-weight="800" font-size="30" fill="#111827">KeepG</text><text x="870" y="84" font-family="Arial" font-size="30" fill="#64748b">↻</text>
+<g transform="translate(270 135)">
+<rect width="210" height="180" rx="16" fill="#bfdbfe"/><circle cx="70" cy="65" r="35" fill="#f59e0b"/><path d="M0 180L80 95l45 42 38-48 47 91z" fill="#60a5fa"/>
+<rect x="220" width="210" height="180" rx="16" fill="#d1fae5"/><circle cx="330" cy="74" r="42" fill="#fda4af"/><path d="M255 180q75-95 150 0" fill="#10b981"/>
+<rect x="440" width="210" height="180" rx="16" fill="#111827"/><text x="515" y="82" font-family="Arial" font-size="42" fill="#c4b5fd">🔒</text><text x="502" y="120" font-family="Arial" font-size="20" fill="#e5e7eb">Protected</text>
+<rect y="190" width="210" height="180" rx="16" fill="#fee2e2"/><circle cx="160" cy="55" r="26" fill="#fb7185"/><path d="M0 370l90-105 50 55 70-80v130z" fill="#f97316"/>
+<rect x="220" y="190" width="210" height="180" rx="16" fill="#ede9fe"/><circle cx="325" cy="278" r="62" fill="#8b5cf6"/><circle cx="305" cy="270" r="6" fill="#fff"/><circle cx="345" cy="270" r="6" fill="#fff"/><path d="M300 300q25 22 50 0" fill="none" stroke="#fff" stroke-width="6"/>
+<rect x="440" y="190" width="210" height="180" rx="16" fill="#fde68a"/><path d="M440 370l70-80 48 30 46-78 46 128z" fill="#f59e0b"/>
+<rect y="380" width="210" height="130" rx="16" fill="#c7d2fe"/><rect x="220" y="380" width="210" height="130" rx="16" fill="#bae6fd"/><rect x="440" y="380" width="210" height="130" rx="16" fill="#fecdd3"/>
+</g>
+<rect x="250" y="650" width="700" height="80" fill="#fff"/><g font-family="Arial" font-size="16" fill="#475569" text-anchor="middle"><text x="320" y="690" fill="#6d28d9">▣ Photos</text><text x="455" y="690">▰ Albums</text><text x="590" y="690">✦ Smart</text><text x="725" y="690">🔒 Vault</text><text x="860" y="690">⚙ Settings</text></g>
+<text x="60" y="145" font-family="Arial" font-weight="700" font-size="34" fill="#111827">Fast library view</text><text x="60" y="187" font-family="Arial" font-size="21" fill="#475569">MediaStore-backed browsing</text><text x="60" y="220" font-family="Arial" font-size="21" fill="#475569">Protected thumbnails stay hidden</text>
+</svg>
