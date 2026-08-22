@@ -13,7 +13,7 @@ These layers solve different problems. An in-app lock does **not** make an origi
 
 ### Device credential
 
-KeepG uses AndroidX `BiometricPrompt` and requests a strong biometric or the device credential. KeepG never receives the user's fingerprint, face template, PIN, pattern, or device password. Android performs the authentication and returns success or failure.
+KeepG uses AndroidX `BiometricPrompt` and requests a strong biometric or the device credential. KeepG never receives the user's fingerprint, face template, PIN, pattern, or device password. Android performs authentication and returns success or failure.
 
 ### KeepG password
 
@@ -37,6 +37,30 @@ KeepG's current classifier runs on-device. Photos are read from Android MediaSto
 
 KeepG does not implement identity verification and must not be used as an access-control biometric system. Automatic person groups are convenience suggestions and may produce false matches or misses.
 
+## Editor and repair safety
+
+Full-edition image/video/GIF editing is non-destructive. KeepG creates a new output item instead of overwriting the source. File/date repair follows the same recovered-copy model. This reduces the chance that an editing or repair failure destroys the only copy of a user's media.
+
+Automatic background removal uses a bundled on-device segmentation model. Adjustable manual removal samples a background color and removes pixels within the user-selected tolerance. Neither operation uploads the image.
+
+Video trimming/muting uses Android demux/remux APIs. If source tracks cannot be safely remuxed into MP4, the operation fails and the original remains untouched.
+
+## External URL and QR handling
+
+KeepG can inspect an unlocked image for QR/barcode content and visible text URLs. Detection runs on-device. The application only presents normalized `http://` and `https://` targets; arbitrary custom schemes are rejected.
+
+Opening a detected URL launches the user's external browser through Android `ACTION_VIEW`. KeepG itself still declares no `INTERNET` permission and does not fetch the destination page. Users must treat QR/URL destinations as untrusted external content and review the displayed host before opening it.
+
+## Debug logging
+
+The optional persistent debug log is stored in app-private storage and rotates at 2 MiB. Export is always user-initiated through Android's document picker. KeepG must not log plaintext passwords, password-derived keys, Vault keys, decrypted Vault bytes, biometric material, or full face descriptor arrays.
+
+Debug logs can still contain filenames, operation names, error messages, and timestamps. Users should review exported logs before sharing them publicly.
+
+## Release signing boundary
+
+Automated GitHub prerelease APKs are Android debug-key signed for installation/testing. They are not represented as production-signed store artifacts. Production signing private keys must never be committed to the repository. AAB artifacts from CI require a proper production signing/store pipeline before public store distribution.
+
 ## Threat model
 
 ### Defended against
@@ -45,16 +69,20 @@ KeepG does not implement identity verification and must not be used as an access
 - Plaintext disclosure of Vault copies from app-private storage.
 - Direct recovery of KeepG passwords from stored password strings; plaintext passwords are not stored.
 - Normal Android cloud backup of KeepG's database and Vault directory.
-- Accidental app-level network upload by the current classifier; the app has no Internet permission.
+- Accidental app-level network upload by the current classifier/editor; the app has no Internet permission.
+- Destructive source overwrite by editor/repair operations; results are written as new copies.
+- Arbitrary URI-scheme launching from detected QR/text values; only HTTP(S) is exposed.
 
 ### Not fully defended against
 
 - A rooted or compromised device controlling the OS/runtime.
 - Screenshots or screen recording after legitimate unlock.
 - Another app reading an **original** MediaStore photo when only an in-app KeepG lock was applied.
+- Malicious/phishing content at a user-opened HTTP(S) destination.
 - Physical attacks outside Android Keystore guarantees.
-- Incorrect smart/person classification.
+- Incorrect smart/person/background classification.
 - Weak user-chosen passwords.
+- Media payload corruption that Android cannot decode or recover.
 
 ## Safe operating procedure
 
@@ -64,8 +92,10 @@ KeepG does not implement identity verification and must not be used as an access
 4. For genuinely sensitive photos, create an encrypted Vault copy.
 5. Verify the Vault import completed before deleting the original.
 6. Delete the original through Android's trusted system UI if it must disappear from other gallery apps.
-7. Do not export decrypted Vault previews to shared storage unless disclosure is intended.
-8. Before selling or transferring the device, uninstall KeepG and perform the manufacturer's secure reset.
+7. Treat QR/URL results as untrusted and verify the destination host before opening.
+8. Review exported debug logs before sharing them.
+9. Keep irreplaceable originals until an edited/repaired copy has been verified.
+10. Before selling or transferring the device, uninstall KeepG and perform the manufacturer's secure reset.
 
 ## Key-loss behavior
 

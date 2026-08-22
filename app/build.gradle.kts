@@ -13,10 +13,33 @@ android {
         applicationId = "com.yanagikh.keepg"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("full") {
+            dimension = "edition"
+            buildConfigField("boolean", "FULL_FEATURES", "true")
+        }
+        create("lite") {
+            dimension = "edition"
+            applicationIdSuffix = ".lite"
+            versionNameSuffix = "-lite"
+            buildConfigField("boolean", "FULL_FEATURES", "false")
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     buildFeatures {
@@ -28,23 +51,13 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
-    }
-
+    testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    lint {
-        abortOnError = true
-        warningsAsErrors = false
-    }
+    kotlinOptions { jvmTarget = "17" }
+    lint { abortOnError = true; warningsAsErrors = false }
 }
 
 dependencies {
@@ -70,6 +83,13 @@ dependencies {
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt:coil-video:2.7.0")
+    implementation("io.coil-kt:coil-svg:2.7.0")
+
+    add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
+    add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")
+    add("fullImplementation", "com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -1,0 +1,96 @@
+name: Publish verified installers
+
+on:
+  workflow_run:
+    workflows: ["Android CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepg-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Resolve verified source revision
+        id: source
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build Full and Lite installers and bundles
+        run: >-
+          gradle
+          :app:assembleFullDebug :app:assembleLiteDebug
+          :app:bundleFullRelease :app:bundleLiteRelease
+          --stacktrace --no-daemon
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          while IFS= read -r file; do
+            base="$(basename "$file")"
+            cp "$file" "dist/$base"
+          done < <(find app/build/outputs/apk -type f -name '*.apk' | sort)
+          while IFS= read -r file; do
+            base="$(basename "$file")"
+            cp "$file" "dist/$base"
+          done < <(find app/build/outputs/bundle -type f -name '*.aab' | sort)
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          echo "Release assets:"
+          ls -lh dist
+
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${SOURCE_SHA:0:7}"
+          tag="build-${GITHUB_RUN_NUMBER}-${short_sha}"
+          cat > release-notes.md <<EOF
+          Automated KeepG verified build from commit \`${SOURCE_SHA}\`.
+
+          Installable APKs are Android debug-key signed so they can be installed directly for testing. Full and Lite are separate application IDs and can coexist. ABI-specific and universal APKs are included when generated. AAB files are provided for store/release pipeline processing and require production signing before store distribution.
+
+          The Android CI workflow completed successfully before this automatic release was created.
+          EOF
+          gh release create "$tag" dist/* \
+            --target "$SOURCE_SHA" \
+            --title "KeepG verified build ${GITHUB_RUN_NUMBER} (${short_sha})" \
+            --notes-file release-notes.md \
+            --prerelease

@@ -1,35 +1,22 @@
 package com.yanagikh.keepg.ui
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
 import com.yanagikh.keepg.MainViewModel
 import com.yanagikh.keepg.data.*
-import java.text.DateFormat
-import java.util.Date
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     PHOTOS("Photos", Icons.Default.PhotoLibrary),
@@ -48,6 +35,7 @@ fun KeepGApp(
     requestDeviceAuthentication: (String, () -> Unit, (String) -> Unit) -> Unit,
     mediaPermissions: Array<String>,
 ) {
+    val context = LocalContext.current
     val photos by viewModel.photos.collectAsState()
     val locks by viewModel.locks.collectAsState()
     val faces by viewModel.faces.collectAsState()
@@ -59,7 +47,11 @@ fun KeepGApp(
     val unlocked by viewModel.sessionUnlocked.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val message by viewModel.message.collectAsState()
+    val detectedLinks by viewModel.detectedLinks.collectAsState()
+    val debugEnabled by viewModel.debugEnabled.collectAsState()
+    val fullFeatures = viewModel.fullFeatures
 
+    val tabs = if (fullFeatures) Tab.entries else listOf(Tab.PHOTOS, Tab.ALBUMS, Tab.SETTINGS)
     var tab by remember { mutableStateOf(Tab.PHOTOS) }
     var photoDetail by remember { mutableStateOf<PhotoEntity?>(null) }
     var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
@@ -70,9 +62,11 @@ fun KeepGApp(
     var localMessage by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        viewModel.refresh()
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
+    val logExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        uri?.let(viewModel::exportDebugLog)
     }
+
     LaunchedEffect(Unit) { permissionLauncher.launch(mediaPermissions) }
     LaunchedEffect(message, localMessage) {
         (localMessage ?: message)?.let {
@@ -84,10 +78,11 @@ fun KeepGApp(
 
     fun unlock(lock: LockEntity, after: () -> Unit = {}) {
         if (lock.authType == "DEVICE") {
-            requestDeviceAuthentication("Unlock protected media", {
-                viewModel.unlockForSession(lock)
-                after()
-            }, { localMessage = it })
+            requestDeviceAuthentication(
+                "Unlock protected media",
+                { viewModel.unlockForSession(lock); after() },
+                { localMessage = it },
+            )
         } else {
             unlockLock = lock
             unlockPassword = ""
@@ -95,6 +90,10 @@ fun KeepGApp(
     }
 
     fun openPhoto(photo: PhotoEntity) {
+        if (!fullFeatures) {
+            photoDetail = photo
+            return
+        }
         val lock = findLock(photo, locks)
         when {
             lock == null || isUnlocked(lock, unlocked) -> photoDetail = photo
@@ -102,15 +101,36 @@ fun KeepGApp(
         }
     }
 
+    fun scanLinks(photo: PhotoEntity) {
+        if (fullFeatures) viewModel.detectLinks(photo)
+    }
+
+    fun openExternal(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure { localMessage = "No browser could open this link" }
+    }
+
+    fun openVideo(photo: PhotoEntity) {
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.parse(photo.uri), photo.mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        }.onFailure { localMessage = "No compatible video player is installed" }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = RoundedCornerShape(9.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
+                        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
                             Box(contentAlignment = Alignment.Center) { Text("K", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black) }
                         }
-                        Spacer(Modifier.width(10.dp)); Text("KeepG", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(10.dp))
+                        Text(if (fullFeatures) "KeepG" else "KeepG Lite", fontWeight = FontWeight.Bold)
                     }
                 },
                 actions = {
@@ -121,8 +141,13 @@ fun KeepGApp(
         },
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach { item ->
-                    NavigationBarItem(tab == item, { tab = item }, { Icon(item.icon, item.label) }, label = { Text(item.label) })
+                tabs.forEach { item ->
+                    NavigationBarItem(
+                        selected = tab == item,
+                        onClick = { tab = item },
+                        icon = { Icon(item.icon, item.label) },
+                        label = { Text(item.label) },
+                    )
                 }
             }
         },
@@ -130,33 +155,95 @@ fun KeepGApp(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.PHOTOS -> PhotoGrid(photos, locks, unlocked, ::openPhoto)
-                Tab.ALBUMS -> AlbumsScreen(photos, locks, unlocked, collections, collectionItems, ::openPhoto,
-                    viewModel::createCollection,
-                    { id, name -> lockTarget = LockTarget("ALBUM", id.toString(), name) },
-                    ::unlock)
+                Tab.PHOTOS -> PhotoGrid(photos, locks, unlocked, ::openPhoto, ::scanLinks)
+                Tab.ALBUMS -> AlbumsScreen(
+                    photos = photos,
+                    locks = locks,
+                    unlocked = unlocked,
+                    collections = collections,
+                    collectionItems = collectionItems,
+                    onPhoto = ::openPhoto,
+                    onLongPress = ::scanLinks,
+                    onCreateCollection = viewModel::createCollection,
+                    onLockAlbum = { id, name -> lockTarget = LockTarget("ALBUM", id.toString(), name) },
+                    onUnlock = ::unlock,
+                    allowProtection = fullFeatures,
+                )
                 Tab.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
                 Tab.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
-                Tab.SETTINGS -> SettingsScreen(photos.size, faces.size, locks.size) { permissionLauncher.launch(mediaPermissions) }
+                Tab.SETTINGS -> SettingsScreen(
+                    photoCount = photos.size,
+                    faceCount = faces.size,
+                    lockCount = locks.size,
+                    fullFeatures = fullFeatures,
+                    debugEnabled = debugEnabled,
+                    onDebugEnabled = viewModel::setDebugEnabled,
+                    onPermissions = { permissionLauncher.launch(mediaPermissions) },
+                    onExportLog = { logExportLauncher.launch("keepg-debug.log") },
+                    onClearLog = viewModel::clearDebugLog,
+                    onShowLog = viewModel::debugSnapshot,
+                )
             }
         }
     }
 
     photoDetail?.let { photo ->
-        PhotoDialog(photo, findLock(photo, locks), collections, { photoDetail = null },
-            { lockTarget = LockTarget("PHOTO", photo.mediaId.toString(), photo.displayName, photo) },
-            viewModel::removeLock,
-            { viewModel.importToVault(photo) },
-            { viewModel.analyze(photo) },
-            { viewModel.addToCollection(it, photo.mediaId) })
+        PhotoDialog(
+            photo = photo,
+            lock = findLock(photo, locks),
+            collections = collections,
+            fullFeatures = fullFeatures,
+            onDismiss = { photoDetail = null },
+            onLock = { lockTarget = LockTarget("PHOTO", photo.mediaId.toString(), photo.displayName, photo) },
+            onRemoveLock = viewModel::removeLock,
+            onVault = { viewModel.importToVault(photo) },
+            onAnalyze = { viewModel.analyze(photo) },
+            onCollection = { viewModel.addToCollection(it, photo.mediaId) },
+            onEdit = { operation, strength -> viewModel.editMedia(photo, operation, strength) },
+            onDetectLinks = { viewModel.detectLinks(photo) },
+            onRepair = { useCurrentTime -> viewModel.repairMedia(photo, useCurrentTime) },
+            onOpenVideo = { openVideo(photo) },
+        )
+    }
+
+    if (detectedLinks.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = viewModel::clearDetectedLinks,
+            title = { Text("Links found") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("KeepG detected these HTTP(S) links. Opening a link leaves KeepG and uses your external browser.")
+                    detectedLinks.forEach { link ->
+                        OutlinedButton({ openExternal(link.value) }, Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.OpenInBrowser, null)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(link.value, maxLines = 2)
+                                Text(link.source, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(viewModel::clearDetectedLinks) { Text("Close") } },
+        )
     }
 
     unlockLock?.let { lock ->
-        PasswordDialog("Unlock protected media", unlockPassword, { unlockPassword = it }, "Unlock", {
-            if (viewModel.verifyPassword(lock, unlockPassword)) {
-                viewModel.unlockForSession(lock); unlockLock = null; unlockPassword = ""
-            } else localMessage = "Incorrect password"
-        }, { unlockLock = null })
+        PasswordDialog(
+            "Unlock protected media",
+            unlockPassword,
+            { unlockPassword = it },
+            "Unlock",
+            {
+                if (viewModel.verifyPassword(lock, unlockPassword)) {
+                    viewModel.unlockForSession(lock)
+                    unlockLock = null
+                    unlockPassword = ""
+                } else localMessage = "Incorrect password"
+            },
+            { unlockLock = null },
+        )
     }
 
     lockTarget?.let { target ->
@@ -166,15 +253,24 @@ fun KeepGApp(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Choose a KeepG unlock method.")
-                    FilledTonalButton({
-                        requestDeviceAuthentication("Confirm device lock", {
-                            if (target.type == "PHOTO") viewModel.lockPhotoWithDevice(requireNotNull(target.photo)) else viewModel.lockAlbumWithDevice(target.id.toLong())
-                            lockTarget = null
-                        }, { localMessage = it })
-                    }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential") }
-                    OutlinedButton({ passwordTarget = target; newPassword = ""; lockTarget = null }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password")
-                    }
+                    FilledTonalButton(
+                        {
+                            requestDeviceAuthentication(
+                                "Confirm device lock",
+                                {
+                                    if (target.type == "PHOTO") viewModel.lockPhotoWithDevice(requireNotNull(target.photo))
+                                    else viewModel.lockAlbumWithDevice(target.id.toLong())
+                                    lockTarget = null
+                                },
+                                { localMessage = it },
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential") }
+                    OutlinedButton(
+                        { passwordTarget = target; newPassword = ""; lockTarget = null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password") }
                 }
             },
             confirmButton = {},
@@ -183,11 +279,21 @@ fun KeepGApp(
     }
 
     passwordTarget?.let { target ->
-        PasswordDialog("Set password for ${target.label}", newPassword, { newPassword = it }, "Protect", {
-            if (newPassword.length < 6) localMessage = "Use at least 6 characters" else {
-                if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword) else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
-                passwordTarget = null; newPassword = ""
-            }
-        }, { passwordTarget = null })
+        PasswordDialog(
+            "Set password for ${target.label}",
+            newPassword,
+            { newPassword = it },
+            "Protect",
+            {
+                if (newPassword.length < 6) localMessage = "Use at least 6 characters"
+                else {
+                    if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword)
+                    else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
+                    passwordTarget = null
+                    newPassword = ""
+                }
+            },
+            { passwordTarget = null },
+        )
     }
 }

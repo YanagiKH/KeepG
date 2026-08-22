@@ -1,8 +1,11 @@
 package com.yanagikh.keepg
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.yanagikh.keepg.advanced.DetectedExternalLink
+import com.yanagikh.keepg.advanced.MediaEditOperation
 import com.yanagikh.keepg.data.*
 import com.yanagikh.keepg.security.PasswordHasher
 import com.yanagikh.keepg.smart.SmartRuleEvaluator
@@ -22,6 +25,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     val vault = container.dao.observeVault().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val collections = container.dao.observeCollections().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val collectionItems = container.dao.observeCollectionItems().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val fullFeatures: Boolean = BuildConfig.FULL_FEATURES
 
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
@@ -29,6 +33,10 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     val message = _message.asStateFlow()
     private val _sessionUnlocked = MutableStateFlow<Set<String>>(emptySet())
     val sessionUnlocked = _sessionUnlocked.asStateFlow()
+    private val _detectedLinks = MutableStateFlow<List<DetectedExternalLink>>(emptyList())
+    val detectedLinks = _detectedLinks.asStateFlow()
+    private val _debugEnabled = MutableStateFlow(container.log.enabled)
+    val debugEnabled = _debugEnabled.asStateFlow()
 
     fun refresh() = launchTask("Library refreshed") { container.mediaStore.refresh() }
 
@@ -43,7 +51,11 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                 val encoded = password?.let { PasswordHasher.create(it.toCharArray()) }
                 container.dao.upsertLock(LockEntity(targetType = targetType, targetId = targetId, authType = authType, passwordHash = encoded?.hash, passwordSalt = encoded?.salt))
                 _sessionUnlocked.update { it - "$targetType:$targetId" }
-            }.onFailure { _message.value = it.message ?: "Unable to create lock" }
+                container.log.info("Security", "Protected $targetType:$targetId with $authType")
+            }.onFailure {
+                container.log.error("Security", "Unable to create lock", it)
+                _message.value = it.message ?: "Unable to create lock"
+            }
         }
     }
 
@@ -62,14 +74,24 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun analyze(photo: PhotoEntity) = launchTask("Analysis complete") { container.faceAnalysis.analyze(photo) }
+    fun analyze(photo: PhotoEntity) {
+        if (!fullFeatures || !photo.mimeType.startsWith("image/")) {
+            _message.value = "Face analysis is available for images in KeepG Full"
+            return
+        }
+        launchTask("Analysis complete") { container.faceAnalysis.analyze(photo) }
+    }
 
     fun analyzeLibrary() {
+        if (!fullFeatures) {
+            _message.value = "Smart analysis is available in KeepG Full"
+            return
+        }
         viewModelScope.launch {
             _busy.value = true
             try {
                 var facesFound = 0
-                val snapshot = photos.value
+                val snapshot = photos.value.filter { it.mimeType.startsWith("image/") }
                 snapshot.forEachIndexed { index, photo ->
                     _message.value = "Analyzing ${index + 1}/${snapshot.size}: ${photo.displayName}"
                     facesFound += runCatching { container.faceAnalysis.analyze(photo) }.getOrDefault(0)
@@ -78,6 +100,43 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
             } finally { _busy.value = false }
         }
     }
+
+    fun detectLinks(photo: PhotoEntity) = launchTask("Link scan complete") {
+        val links = container.advanced.detectExternalLinks(photo)
+        _detectedLinks.value = links
+        if (links.isEmpty()) _message.value = "No web links or QR URLs found"
+    }
+
+    fun clearDetectedLinks() { _detectedLinks.value = emptyList() }
+
+    fun editMedia(photo: PhotoEntity, operation: MediaEditOperation, strength: Float = 0.35f) = launchTask("Edited copy created") {
+        val result = container.advanced.edit(photo, operation, strength)
+        container.log.info("Editor", "${operation.name}: ${photo.displayName} -> $result")
+        container.mediaStore.refresh()
+    }
+
+    fun repairMedia(photo: PhotoEntity, useCurrentTime: Boolean = false) = launchTask("Repair finished") {
+        val report = container.advanced.repair(photo, if (useCurrentTime) System.currentTimeMillis() else null)
+        container.log.info("Repair", "${photo.displayName}: ${report.summary}")
+        container.mediaStore.refresh()
+        _message.value = report.summary
+    }
+
+    fun setDebugEnabled(enabled: Boolean) {
+        container.log.setEnabled(enabled)
+        _debugEnabled.value = enabled
+    }
+
+    fun exportDebugLog(destination: Uri) = launchTask("Debug log exported") {
+        container.log.exportTo(destination)
+    }
+
+    fun clearDebugLog() {
+        container.log.clear()
+        _message.value = "Debug log cleared"
+    }
+
+    fun debugSnapshot(): String = container.log.snapshot()
 
     fun namePerson(clusterId: Long, name: String) {
         if (name.isBlank()) return
@@ -119,9 +178,15 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     private fun <T> launchTask(successMessage: String, block: suspend () -> T) {
         viewModelScope.launch {
             _busy.value = true
-            try { withContext(Dispatchers.IO) { block() }; _message.value = successMessage }
-            catch (t: Throwable) { _message.value = t.message ?: "Operation failed" }
-            finally { _busy.value = false }
+            try {
+                withContext(Dispatchers.IO) { block() }
+                if (_message.value == null) _message.value = successMessage
+            } catch (t: Throwable) {
+                container.log.error("Operation", successMessage, t)
+                _message.value = t.message ?: "Operation failed"
+            } finally {
+                _busy.value = false
+            }
         }
     }
 }
