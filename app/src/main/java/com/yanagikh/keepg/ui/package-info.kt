@@ -1,4 +1,4 @@
-@OptIn(UnstableApi::class)
+@file:OptIn(UnstableApi::class)
 package com.yanagikh.keepg.ui
 
 import androidx.annotation.OptIn
