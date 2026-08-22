@@ -13,7 +13,6 @@ import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.segmentation.Segmentation
@@ -28,7 +27,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -166,10 +164,14 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         val threshold = 441.7 * strength
         val pixels = IntArray(output.width * output.height)
         output.getPixels(pixels, 0, output.width, 0, 0, output.width, output.height)
-        val sr = Color.red(sample); val sg = Color.green(sample); val sb = Color.blue(sample)
+        val sr = Color.red(sample)
+        val sg = Color.green(sample)
+        val sb = Color.blue(sample)
         for (i in pixels.indices) {
             val c = pixels[i]
-            val dr = Color.red(c) - sr; val dg = Color.green(c) - sg; val db = Color.blue(c) - sb
+            val dr = Color.red(c) - sr
+            val dg = Color.green(c) - sg
+            val db = Color.blue(c) - sb
             val distance = sqrt((dr * dr + dg * dg + db * db).toDouble())
             if (distance <= threshold) pixels[i] = c and 0x00FFFFFF
         }
@@ -230,7 +232,7 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
                     val size = extractor.readSampleData(buffer, 0)
                     if (size < 0) break
                     trackMap[sourceTrack]?.let { destinationTrack ->
-                        info.set(0, size, max(0L, timeUs), extractor.sampleFlags)
+                        info.set(0, size, max(0L, timeUs), extractorFlagsToCodecFlags(extractor.sampleFlags))
                         muxer.writeSampleData(destinationTrack, buffer, info)
                     }
                     extractor.advance()
@@ -262,9 +264,16 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         return outputUri
     }
 
+    private fun extractorFlagsToCodecFlags(sampleFlags: Int): Int {
+        var codecFlags = 0
+        if (sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) codecFlags = codecFlags or MediaCodec.BUFFER_FLAG_KEY_FRAME
+        if (sampleFlags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME != 0) codecFlags = codecFlags or MediaCodec.BUFFER_FLAG_PARTIAL_FRAME
+        return codecFlags
+    }
+
     private fun sanitizeTimestamp(value: Long): Long {
         val now = System.currentTimeMillis()
-        val earliest = 631_152_000_000L // 1990-01-01 UTC
+        val earliest = 631_152_000_000L
         return if (value in earliest..(now + 86_400_000L)) value else now
     }
 
