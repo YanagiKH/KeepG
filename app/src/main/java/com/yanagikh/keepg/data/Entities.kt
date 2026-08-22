@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "photos", indices = [Index("bucketId"), Index("dateTaken")])
+@Entity(tableName = "photos", indices = [Index("bucketId"), Index("dateTaken"), Index("sizeBytes")])
 data class PhotoEntity(
     @PrimaryKey val mediaId: Long,
     val uri: String,
@@ -15,6 +15,8 @@ data class PhotoEntity(
     val dateTaken: Long,
     val width: Int,
     val height: Int,
+    val sizeBytes: Long = 0L,
+    val durationMs: Long = 0L,
     val latitude: Double? = null,
     val longitude: Double? = null,
     val lastScannedAt: Long = System.currentTimeMillis(),
