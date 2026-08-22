@@ -24,9 +24,35 @@ enum class MediaEditOperation {
     VIDEO_MUTE,
 }
 
+enum class BackgroundRemovalMode { NONE, AUTO, MANUAL }
+
+data class TextLayerSpec(
+    val text: String,
+    val x: Float = 0.5f,
+    val y: Float = 0.5f,
+    val scale: Float = 1f,
+    val rotation: Float = 0f,
+)
+
+data class AdvancedEditRequest(
+    val outputName: String,
+    val offsetX: Float = 0f,
+    val offsetY: Float = 0f,
+    val scale: Float = 1f,
+    val rotation: Float = 0f,
+    val cropLeft: Float = 0f,
+    val cropTop: Float = 0f,
+    val cropRight: Float = 1f,
+    val cropBottom: Float = 1f,
+    val backgroundRemoval: BackgroundRemovalMode = BackgroundRemovalMode.NONE,
+    val backgroundStrength: Float = 0.28f,
+    val textLayers: List<TextLayerSpec> = emptyList(),
+)
+
 interface AdvancedFeatureTools {
     val available: Boolean
-    suspend fun detectExternalLinks(media: PhotoEntity): List<DetectedExternalLink>
+    suspend fun detectExternalLinks(media: PhotoEntity, normalizedX: Float? = null, normalizedY: Float? = null): List<DetectedExternalLink>
     suspend fun edit(media: PhotoEntity, operation: MediaEditOperation, strength: Float = 0.35f): String
+    suspend fun editAdvanced(media: PhotoEntity, request: AdvancedEditRequest): String
     suspend fun repair(media: PhotoEntity, preferredTimestamp: Long? = null): RepairReport
 }
