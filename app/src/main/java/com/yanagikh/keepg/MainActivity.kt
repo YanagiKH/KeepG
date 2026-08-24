@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
 import com.yanagikh.keepg.ui.KeepGAppV2
 import com.yanagikh.keepg.ui.KeepGTheme
+import com.yanagikh.keepg.widget.KeepGWidgetProvider
 
 class MainActivity : FragmentActivity() {
     private lateinit var viewModel: MainViewModel
@@ -17,15 +18,17 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as KeepGApplication
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
+        val initialDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
         setContent {
             KeepGTheme {
                 KeepGAppV2(
-                    viewModel,
-                    { title, success, error ->
+                    viewModel = viewModel,
+                    requestDeviceAuthentication = { title, success, error ->
                         if (!DeviceAuthenticator.isAvailable(this)) error("No supported device credential is configured")
                         else DeviceAuthenticator.authenticate(this, title, success, error)
                     },
-                    requiredMediaPermissions(),
+                    mediaPermissions = requiredMediaPermissions(),
+                    initialDestination = initialDestination,
                 )
             }
         }
