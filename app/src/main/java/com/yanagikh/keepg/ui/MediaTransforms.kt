@@ -21,8 +21,8 @@ internal fun clampMediaTranslation(
     val maxX = max(0f, (drawnWidth - viewportWidth) / 2f)
     val maxY = max(0f, (drawnHeight - viewportHeight) / 2f)
     return Offset(
-        translation.x.coerceIn(-maxX, maxX),
-        translation.y.coerceIn(-maxY, maxY),
+        if (maxX == 0f) 0f else translation.x.coerceIn(-maxX, maxX),
+        if (maxY == 0f) 0f else translation.y.coerceIn(-maxY, maxY),
     )
 }
 
