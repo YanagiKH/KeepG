@@ -1,7 +1,6 @@
 package com.yanagikh.keepg.ui
 
 import android.net.Uri
-import android.view.TextureView
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -33,7 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -43,7 +41,6 @@ import coil.request.ImageRequest
 import com.yanagikh.keepg.data.*
 import kotlinx.coroutines.flow.collectLatest
 import java.util.Locale
-import kotlin.math.abs
 
 @Composable
 internal fun LibraryScreenV2(
@@ -222,6 +219,7 @@ internal fun PhotoGridV2(
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
     val photoById = remember(photos) { photos.associateBy { it.mediaId } }
+    val latestColumns by rememberUpdatedState(columns.coerceIn(2, 8))
     val player = remember(context) {
         ExoPlayer.Builder(context).build().apply {
             volume = 0f
@@ -231,7 +229,6 @@ internal fun PhotoGridV2(
     }
     var activeVideoId by remember { mutableStateOf<Long?>(null) }
     var gridTransforming by remember { mutableStateOf(false) }
-    var lastColumnChange by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(player) { onDispose { player.release() } }
 
@@ -263,10 +260,11 @@ internal fun PhotoGridV2(
     LazyVerticalGrid(
         GridCells.Fixed(columns.coerceIn(2, 8)),
         state = gridState,
-        modifier = Modifier.fillMaxSize().clipToBounds().animateContentSize().pointerInput(columns) {
+        modifier = Modifier.fillMaxSize().clipToBounds().animateContentSize().pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 var accumulated = 1f
+                var gestureColumns = latestColumns
                 var transformed = false
                 while (true) {
                     val pointerEvent = awaitPointerEvent()
@@ -277,10 +275,10 @@ internal fun PhotoGridV2(
                             transformed = true
                         }
                         accumulated *= pointerEvent.calculateZoom()
-                        val now = System.currentTimeMillis()
-                        if (now - lastColumnChange > 150L && abs(accumulated - 1f) > .16f) {
-                            onGridColumns((if (accumulated > 1f) columns - 1 else columns + 1).coerceIn(2, 8))
-                            lastColumnChange = now
+                        val nextColumns = steppedGridColumns(gestureColumns, accumulated)
+                        if (nextColumns != gestureColumns) {
+                            gestureColumns = nextColumns
+                            onGridColumns(nextColumns)
                             accumulated = 1f
                         }
                         pointerEvent.changes.forEach { it.consume() }
@@ -312,7 +310,7 @@ internal fun PhotoGridV2(
                     )
             ) {
                 if (visible) {
-                    if (activeVideo) GridVideoSurface(player, Modifier.fillMaxSize())
+                    if (activeVideo) GridVideoSurface(player, photo, Modifier.fillMaxSize())
                     else MediaThumbnail(photo, Modifier.fillMaxSize())
 
                     if (photo.mimeType.startsWith("video/")) {
@@ -352,12 +350,12 @@ internal fun PhotoGridV2(
 }
 
 @Composable
-private fun GridVideoSurface(player: ExoPlayer, modifier: Modifier = Modifier) {
-    AndroidView(
-        modifier = modifier.clipToBounds(),
-        factory = { context -> TextureView(context).also { player.setVideoTextureView(it) } },
-        update = { player.setVideoTextureView(it) },
-        onRelease = { player.clearVideoTextureView(it) },
+private fun GridVideoSurface(player: ExoPlayer, photo: PhotoEntity, modifier: Modifier = Modifier) {
+    FittedVideoTextureSurfaceV2(
+        player = player,
+        fallbackWidth = photo.width,
+        fallbackHeight = photo.height,
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
     )
 }
 
@@ -376,7 +374,7 @@ internal fun MediaThumbnail(photo: PhotoEntity, modifier: Modifier = Modifier) {
         model = request,
         contentDescription = photo.displayName,
         modifier = modifier.clipToBounds(),
-        contentScale = ContentScale.Crop,
+        contentScale = if (photo.mimeType.startsWith("video/")) ContentScale.Fit else ContentScale.Crop,
     )
 }
 
@@ -384,6 +382,7 @@ internal fun MediaThumbnail(photo: PhotoEntity, modifier: Modifier = Modifier) {
 @Composable
 internal fun AlbumsScreenV2(
     photos: List<PhotoEntity>,
+    trash: List<PhotoEntity>,
     locks: List<LockEntity>,
     unlocked: Set<String>,
     collections: List<CollectionEntity>,
@@ -402,11 +401,14 @@ internal fun AlbumsScreenV2(
     onShareMedia: (List<PhotoEntity>) -> Unit,
     onDeleteMedia: (List<PhotoEntity>) -> Unit,
     onVaultMedia: (List<PhotoEntity>) -> Unit,
+    onRestoreTrash: (List<PhotoEntity>) -> Unit,
+    onDeleteTrash: (List<PhotoEntity>) -> Unit,
     allowProtection: Boolean,
 ) {
     var bucketId by remember { mutableStateOf<Long?>(null) }
     var collectionId by remember { mutableStateOf<Long?>(null) }
     var favoritesOpen by remember { mutableStateOf(false) }
+    var trashOpen by remember { mutableStateOf(false) }
     var create by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var albumQuery by remember { mutableStateOf("") }
@@ -416,6 +418,16 @@ internal fun AlbumsScreenV2(
     val favoritesLabel = tr("Favorites")
     val albumLabel = tr("Album")
     val collectionsLabel = tr("Collections")
+
+    if (trashOpen) {
+        TrashManagerV2(
+            trash = trash,
+            onBack = { trashOpen = false },
+            onRestore = onRestoreTrash,
+            onDeletePermanently = onDeleteTrash,
+        )
+        return
+    }
 
     if (bucketId != null || collectionId != null || favoritesOpen) {
         val filtered = when {
@@ -477,6 +489,15 @@ internal fun AlbumsScreenV2(
                     leadingContent = { Icon(Icons.Default.Favorite, null) },
                     trailingContent = { IconButton({ manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }) { Icon(Icons.Default.MoreVert, "Manage") } },
                     modifier = Modifier.combinedClickable(onClick = { favoritesOpen = true }, onLongClick = { manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text("Trash", fontWeight = FontWeight.Bold) },
+                    supportingContent = { Text("${trash.size} items · restore or permanently delete") },
+                    leadingContent = { Icon(Icons.Default.DeleteSweep, null) },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                    modifier = Modifier.combinedClickable(onClick = { trashOpen = true }, onLongClick = { trashOpen = true }),
                 )
             }
             item {
@@ -553,6 +574,57 @@ internal fun AlbumsScreenV2(
             confirmButton = { TextButton({ onCreateCollection(name); name = ""; create = false }) { Text(tr("Create")) } },
             dismissButton = { TextButton({ create = false }) { Text(tr("Cancel")) } },
         )
+    }
+}
+
+@Composable
+private fun TrashManagerV2(
+    trash: List<PhotoEntity>,
+    onBack: () -> Unit,
+    onRestore: (List<PhotoEntity>) -> Unit,
+    onDeletePermanently: (List<PhotoEntity>) -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onBack) { Icon(Icons.Default.ArrowBack, tr("Back")) }
+            Column(Modifier.weight(1f)) {
+                Text("Trash", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${trash.size} recoverable items", style = MaterialTheme.typography.labelMedium)
+            }
+            if (trash.isNotEmpty()) {
+                TextButton({ onRestore(trash) }) { Text("Restore all") }
+            }
+        }
+        if (trash.isEmpty()) {
+            EmptyState(Icons.Default.DeleteSweep, "Trash is empty", "Items moved to Android MediaStore trash appear here until restored or expired.")
+        } else {
+            LazyColumn(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(trash, key = { "trash-${it.uri}" }) { media ->
+                    ElevatedCard {
+                        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            MediaThumbnail(media, Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(media.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                                Text(media.bucketName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton({ onRestore(listOf(media)) }) { Icon(Icons.Default.RestoreFromTrash, "Restore") }
+                            IconButton({ onDeletePermanently(listOf(media)) }) { Icon(Icons.Default.DeleteForever, "Delete permanently", tint = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { onDeletePermanently(trash) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    ) {
+                        Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Delete all permanently", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
     }
 }
 
