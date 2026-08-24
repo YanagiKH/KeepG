@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -41,7 +40,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
-import coil.video.videoFramePercent
 import com.yanagikh.keepg.data.*
 import kotlinx.coroutines.flow.collectLatest
 import java.util.Locale
@@ -357,9 +355,9 @@ internal fun PhotoGridV2(
 private fun GridVideoSurface(player: ExoPlayer, modifier: Modifier = Modifier) {
     AndroidView(
         modifier = modifier.clipToBounds(),
-        factory = { context -> TextureView(context).also(player::setVideoTextureView) },
-        update = player::setVideoTextureView,
-        onRelease = player::clearVideoTextureView,
+        factory = { context -> TextureView(context).also { player.setVideoTextureView(it) } },
+        update = { player.setVideoTextureView(it) },
+        onRelease = { player.clearVideoTextureView(it) },
     )
 }
 
@@ -370,10 +368,7 @@ internal fun MediaThumbnail(photo: PhotoEntity, modifier: Modifier = Modifier) {
         ImageRequest.Builder(context)
             .data(Uri.parse(photo.uri))
             .apply {
-                if (photo.mimeType.startsWith("video/")) {
-                    decoderFactory(VideoFrameDecoder.Factory())
-                    videoFramePercent(0.35)
-                }
+                if (photo.mimeType.startsWith("video/")) decoderFactory(VideoFrameDecoder.Factory())
             }
             .build()
     }
@@ -418,6 +413,9 @@ internal fun AlbumsScreenV2(
     var manageMedia by remember { mutableStateOf<List<PhotoEntity>?>(null) }
     var manageTitle by remember { mutableStateOf("") }
     var manageBucket by remember { mutableStateOf<Long?>(null) }
+    val favoritesLabel = tr("Favorites")
+    val albumLabel = tr("Album")
+    val collectionsLabel = tr("Collections")
 
     if (bucketId != null || collectionId != null || favoritesOpen) {
         val filtered = when {
@@ -428,26 +426,23 @@ internal fun AlbumsScreenV2(
                 photos.filter { it.mediaId in ids }
             }
         }
+        val currentTitle = when {
+            favoritesOpen -> favoritesLabel
+            bucketId != null -> photos.firstOrNull { it.bucketId == bucketId }?.bucketName ?: albumLabel
+            else -> collections.firstOrNull { it.id == collectionId }?.name ?: collectionsLabel
+        }
         Column {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ bucketId = null; collectionId = null; favoritesOpen = false }) { Icon(Icons.Default.ArrowBack, tr("Back")) }
                 Text(
-                    when {
-                        favoritesOpen -> tr("Favorites")
-                        bucketId != null -> photos.firstOrNull { it.bucketId == bucketId }?.bucketName ?: tr("Album")
-                        else -> collections.firstOrNull { it.id == collectionId }?.name ?: tr("Collections")
-                    },
+                    currentTitle,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
                 IconButton({
                     manageMedia = filtered
-                    manageTitle = when {
-                        favoritesOpen -> tr("Favorites")
-                        bucketId != null -> photos.firstOrNull { it.bucketId == bucketId }?.bucketName ?: tr("Album")
-                        else -> collections.firstOrNull { it.id == collectionId }?.name ?: tr("Collections")
-                    }
+                    manageTitle = currentTitle
                     manageBucket = bucketId
                 }) { Icon(Icons.Default.MoreVert, "Manage album") }
             }
@@ -477,16 +472,16 @@ internal fun AlbumsScreenV2(
             item {
                 val favoriteMedia = photos.filter { it.mediaId in favorites }
                 ListItem(
-                    headlineContent = { Text(tr("Favorites"), fontWeight = FontWeight.Bold) },
+                    headlineContent = { Text(favoritesLabel, fontWeight = FontWeight.Bold) },
                     supportingContent = { Text(favorites.size.toString()) },
                     leadingContent = { Icon(Icons.Default.Favorite, null) },
-                    trailingContent = { IconButton({ manageMedia = favoriteMedia; manageTitle = tr("Favorites"); manageBucket = null }) { Icon(Icons.Default.MoreVert, "Manage") } },
-                    modifier = Modifier.combinedClickable(onClick = { favoritesOpen = true }, onLongClick = { manageMedia = favoriteMedia; manageTitle = tr("Favorites"); manageBucket = null }),
+                    trailingContent = { IconButton({ manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }) { Icon(Icons.Default.MoreVert, "Manage") } },
+                    modifier = Modifier.combinedClickable(onClick = { favoritesOpen = true }, onLongClick = { manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }),
                 )
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(tr("Collections"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(collectionsLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     IconButton({ create = true }) { Icon(Icons.Default.Add, tr("New collection")) }
                 }
             }
@@ -513,9 +508,7 @@ internal fun AlbumsScreenV2(
                     headlineContent = { Text(group.first().bucketName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text("${group.size} items${if (locked) " · ${tr("Protected")}" else ""}") },
                     leadingContent = { if (locked) Icon(Icons.Default.Lock, null) else MediaThumbnail(group.first(), Modifier.size(50.dp).clip(RoundedCornerShape(10.dp))) },
-                    trailingContent = {
-                        IconButton({ manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id }) { Icon(Icons.Default.MoreVert, "Manage album") }
-                    },
+                    trailingContent = { IconButton({ manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id }) { Icon(Icons.Default.MoreVert, "Manage album") } },
                     modifier = Modifier.combinedClickable(
                         onClick = { if (locked) onUnlock(requireNotNull(lock)) else bucketId = id },
                         onLongClick = { manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id },
