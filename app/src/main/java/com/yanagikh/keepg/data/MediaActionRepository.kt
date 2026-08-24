@@ -48,6 +48,16 @@ class MediaActionRepository(private val context: Context) {
         return request.intentSender
     }
 
+    fun createTrashStateIntentSender(media: List<PhotoEntity>, trashed: Boolean): IntentSender? {
+        if (Build.VERSION.SDK_INT < 30 || media.isEmpty()) return null
+        return MediaStore.createTrashRequest(context.contentResolver, media.map { Uri.parse(it.uri) }, trashed).intentSender
+    }
+
+    fun createPermanentDeleteIntentSender(media: List<PhotoEntity>): IntentSender? {
+        if (Build.VERSION.SDK_INT < 30 || media.isEmpty()) return null
+        return MediaStore.createDeleteRequest(context.contentResolver, media.map { Uri.parse(it.uri) }).intentSender
+    }
+
     suspend fun removeLegacy(media: List<PhotoEntity>): Int = withContext(Dispatchers.IO) {
         media.count { item -> runCatching { context.contentResolver.delete(Uri.parse(item.uri), null, null) > 0 }.getOrDefault(false) }
     }

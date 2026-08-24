@@ -1,6 +1,7 @@
 package com.yanagikh.keepg
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -9,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
 import com.yanagikh.keepg.ui.KeepGAppV2
 import com.yanagikh.keepg.ui.KeepGTheme
+import com.yanagikh.keepg.widget.KeepGWidgetProvider
 
 class MainActivity : FragmentActivity() {
     private lateinit var viewModel: MainViewModel
@@ -17,18 +19,27 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as KeepGApplication
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
+        val startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
         setContent {
             KeepGTheme {
                 KeepGAppV2(
-                    viewModel,
-                    { title, success, error ->
+                    viewModel = viewModel,
+                    requestDeviceAuthentication = { title, success, error ->
                         if (!DeviceAuthenticator.isAvailable(this)) error("No supported device credential is configured")
                         else DeviceAuthenticator.authenticate(this, title, success, error)
                     },
-                    requiredMediaPermissions(),
+                    mediaPermissions = requiredMediaPermissions(),
+                    initialDestination = startDestination,
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Re-create the Compose tree so an identical widget shortcut is honored repeatedly.
+        recreate()
     }
 
     private fun requiredMediaPermissions(): Array<String> = buildList {

@@ -22,7 +22,9 @@ import com.yanagikh.keepg.KeepGApplication
 import com.yanagikh.keepg.MainViewModel
 import com.yanagikh.keepg.data.*
 import com.yanagikh.keepg.security.PasswordHasher
+import com.yanagikh.keepg.widget.KeepGWidgetProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class TabV2(val labelKey: String, val icon: ImageVector) {
@@ -41,6 +43,7 @@ fun KeepGAppV2(
     viewModel: MainViewModel,
     requestDeviceAuthentication: (String, () -> Unit, (String) -> Unit) -> Unit,
     mediaPermissions: Array<String>,
+    initialDestination: String? = null,
 ) {
     val context = LocalContext.current
     val container = remember(context) { (context.applicationContext as KeepGApplication).container }
@@ -71,10 +74,17 @@ fun KeepGAppV2(
 
     CompositionLocalProvider(LocalAppLanguage provides settings.language) {
         val tabs = if (fullFeatures) TabV2.entries else listOf(TabV2.PHOTOS, TabV2.ALBUMS, TabV2.SETTINGS)
+        val initialTab = when (initialDestination) {
+            KeepGWidgetProvider.DEST_ALBUMS -> TabV2.ALBUMS
+            KeepGWidgetProvider.DEST_VAULT -> if (fullFeatures) TabV2.VAULT else TabV2.PHOTOS
+            else -> TabV2.PHOTOS
+        }
         val incorrectPasswordMessage = tr("Incorrect password")
         val minimumPasswordMessage = tr("Use at least 6 characters")
-        var tabName by rememberSaveable { mutableStateOf(TabV2.PHOTOS.name) }
+        var tabName by rememberSaveable { mutableStateOf(initialTab.name) }
         val tab = tabs.firstOrNull { it.name == tabName } ?: tabs.first()
+        var cameraOpen by rememberSaveable { mutableStateOf(initialDestination == KeepGWidgetProvider.DEST_CAMERA) }
+        var showLaunch by rememberSaveable { mutableStateOf(true) }
         var previewId by rememberSaveable { mutableStateOf<Long?>(null) }
         val preview = previewId?.let { id -> photos.firstOrNull { it.mediaId == id } }
         var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
@@ -89,21 +99,44 @@ fun KeepGAppV2(
         var batchCollection by remember { mutableStateOf(false) }
         var batchProtect by remember { mutableStateOf(false) }
         var batchProtectPassword by remember { mutableStateOf("") }
+        var trashMedia by remember { mutableStateOf<List<PhotoEntity>>(emptyList()) }
+        var pendingMediaActionLabel by remember { mutableStateOf("Media action") }
         val snackbar = remember { SnackbarHostState() }
+
+        fun reloadTrash() {
+            scope.launch { trashMedia = container.mediaStore.listTrashed() }
+        }
 
         val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
         val logExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(viewModel::exportDebugLog) }
-        val removalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val mediaActionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 previewId = null
                 viewModel.clearSelection()
                 viewModel.refresh()
+                reloadTrash()
+                localMessage = "$pendingMediaActionLabel complete"
             } else {
-                localMessage = "Delete request cancelled"
+                localMessage = "$pendingMediaActionLabel cancelled"
             }
         }
 
-        LaunchedEffect(Unit) { permissionLauncher.launch(mediaPermissions) }
+        LaunchedEffect(Unit) {
+            permissionLauncher.launch(mediaPermissions)
+            trashMedia = container.mediaStore.listTrashed()
+            if (showLaunch) {
+                delay(1_050)
+                showLaunch = false
+            }
+        }
+        LaunchedEffect(initialDestination) {
+            when (initialDestination) {
+                KeepGWidgetProvider.DEST_CAMERA -> cameraOpen = true
+                KeepGWidgetProvider.DEST_ALBUMS -> { cameraOpen = false; tabName = TabV2.ALBUMS.name }
+                KeepGWidgetProvider.DEST_VAULT -> { cameraOpen = false; tabName = if (fullFeatures) TabV2.VAULT.name else TabV2.PHOTOS.name }
+                KeepGWidgetProvider.DEST_PHOTOS -> { cameraOpen = false; tabName = TabV2.PHOTOS.name }
+            }
+        }
         LaunchedEffect(message, localMessage) {
             (localMessage ?: message)?.let {
                 snackbar.showSnackbar(it)
@@ -134,6 +167,13 @@ fun KeepGAppV2(
             if (lock == null || isUnlocked(lock, unlocked)) previewId = media.mediaId else unlock(lock, media)
         }
 
+        fun navigatePreview(delta: Int) {
+            val current = preview ?: return
+            val index = visiblePhotos.indexOfFirst { it.mediaId == current.mediaId }
+            val target = visiblePhotos.getOrNull(index + delta) ?: return
+            openMedia(target)
+        }
+
         fun shareMedia(media: List<PhotoEntity>, password: String?) {
             if (media.isEmpty()) return
             viewModel.prepareShare(media, password) { chooser ->
@@ -141,14 +181,35 @@ fun KeepGAppV2(
             }
         }
 
+        fun launchMediaAction(label: String, sender: android.content.IntentSender?) {
+            if (sender == null) {
+                localMessage = "$label is unavailable on this Android version"
+                return
+            }
+            pendingMediaActionLabel = label
+            mediaActionLauncher.launch(IntentSenderRequest.Builder(sender).build())
+        }
+
         fun removeMedia(media: List<PhotoEntity>) {
             if (media.isEmpty()) return
             val sender = viewModel.createRemovalIntentSender(media)
-            if (sender != null) removalLauncher.launch(IntentSenderRequest.Builder(sender).build())
-            else {
+            if (sender != null) {
+                launchMediaAction(if (settings.deleteToTrash) "Move to trash" else "Delete", sender)
+            } else {
                 previewId = null
                 viewModel.removeLegacy(media)
+                reloadTrash()
             }
+        }
+
+        fun restoreTrash(media: List<PhotoEntity>) {
+            if (media.isEmpty()) return
+            launchMediaAction("Restore from trash", container.mediaActions.createTrashStateIntentSender(media, false))
+        }
+
+        fun permanentlyDeleteTrash(media: List<PhotoEntity>) {
+            if (media.isEmpty()) return
+            launchMediaAction("Permanent delete", container.mediaActions.createPermanentDeleteIntentSender(media))
         }
 
         fun selectMedia(media: List<PhotoEntity>) {
@@ -224,125 +285,150 @@ fun KeepGAppV2(
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { localMessage = "No browser could open this link" }
         }
 
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
-                                Box(contentAlignment = Alignment.Center) { Text("K", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black) }
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Text(if (fullFeatures) "KeepG" else "KeepG Lite", fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    actions = {
-                        if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                        IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, tr("Refresh")) }
+        Box(Modifier.fillMaxSize()) {
+            if (cameraOpen) {
+                KeepGCameraScreen(
+                    onClose = { cameraOpen = false },
+                    onCaptured = {
+                        viewModel.refresh()
+                        localMessage = "Photo captured"
                     },
                 )
-            },
-            bottomBar = {
-                NavigationBar {
-                    tabs.forEach { item ->
-                        NavigationBarItem(
-                            selected = tab == item,
-                            onClick = { tabName = item.name; viewModel.clearSelection() },
-                            icon = { Icon(item.icon, tr(item.labelKey)) },
-                            label = { Text(tr(item.labelKey)) },
+            } else {
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
+                                        Box(contentAlignment = Alignment.Center) { Text("K", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black) }
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(if (fullFeatures) "KeepG" else "KeepG Lite", fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            actions = {
+                                if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                                IconButton({ cameraOpen = true }) { Icon(Icons.Default.PhotoCamera, "KeepG Camera") }
+                                IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, tr("Refresh")) }
+                            },
                         )
+                    },
+                    bottomBar = {
+                        NavigationBar {
+                            tabs.forEach { item ->
+                                NavigationBarItem(
+                                    selected = tab == item,
+                                    onClick = { tabName = item.name; viewModel.clearSelection() },
+                                    icon = { Icon(item.icon, tr(item.labelKey)) },
+                                    label = { Text(tr(item.labelKey)) },
+                                )
+                            }
+                        }
+                    },
+                    snackbarHost = { SnackbarHost(snackbar) },
+                ) { padding ->
+                    Box(Modifier.padding(padding).fillMaxSize()) {
+                        when (tab) {
+                            TabV2.PHOTOS -> LibraryScreenV2(
+                                photos = visiblePhotos,
+                                locks = locks,
+                                unlocked = unlocked,
+                                favorites = favorites,
+                                selectedIds = selectedIds,
+                                settings = settings,
+                                query = query,
+                                typeFilter = typeFilter,
+                                sizeFilter = sizeFilter,
+                                extensionFilter = extensionFilter,
+                                onQuery = viewModel::setSearchQuery,
+                                onTypeFilter = viewModel::setTypeFilter,
+                                onSizeFilter = viewModel::setSizeFilter,
+                                onExtensionFilter = viewModel::setExtensionFilter,
+                                onSort = viewModel::setSortMode,
+                                onSortDescending = viewModel::setSortDescending,
+                                onGridColumns = viewModel::setGridColumns,
+                                onPhoto = ::openMedia,
+                                onToggleSelection = viewModel::toggleSelection,
+                                onClearSelection = viewModel::clearSelection,
+                                onSelectAll = { selectMedia(visiblePhotos) },
+                                onFavoriteSelected = viewModel::favoriteSelected,
+                                onShareSelected = { if (selectedPhotos.isNotEmpty()) shareTarget = selectedPhotos },
+                                onCollectionSelected = { if (selectedPhotos.isNotEmpty() && collections.isNotEmpty()) batchCollection = true },
+                                onProtectSelected = { if (selectedPhotos.isNotEmpty()) batchProtect = true },
+                                onVaultSelected = { vaultMedia(selectedPhotos) },
+                                onAnalyzeSelected = { analyzeMedia(selectedPhotos) },
+                                onDeleteSelected = { if (selectedPhotos.isNotEmpty()) deleteTarget = selectedPhotos },
+                                fullFeatures = fullFeatures,
+                            )
+                            TabV2.ALBUMS -> AlbumsScreenV2(
+                                photos = visiblePhotos,
+                                trash = trashMedia,
+                                locks = locks,
+                                unlocked = unlocked,
+                                collections = collections,
+                                collectionItems = collectionItems,
+                                favorites = favorites,
+                                selectedIds = selectedIds,
+                                settings = settings,
+                                onPhoto = ::openMedia,
+                                onToggleSelection = viewModel::toggleSelection,
+                                onGridColumns = viewModel::setGridColumns,
+                                onCreateCollection = viewModel::createCollection,
+                                onLockAlbum = { id, name -> lockTarget = LockTargetV2("ALBUM", id.toString(), name) },
+                                onUnlock = { unlock(it) },
+                                onSelectMedia = ::selectMedia,
+                                onFavoriteMedia = ::favoriteMedia,
+                                onShareMedia = { shareTarget = it },
+                                onDeleteMedia = { deleteTarget = it },
+                                onVaultMedia = ::vaultMedia,
+                                onRestoreTrash = ::restoreTrash,
+                                onDeleteTrash = ::permanentlyDeleteTrash,
+                                allowProtection = fullFeatures,
+                            )
+                            TabV2.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
+                            TabV2.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
+                            TabV2.SETTINGS -> GallerySettingsScreen(
+                                photoCount = photos.size,
+                                faceCount = faces.size,
+                                lockCount = locks.size,
+                                fullFeatures = fullFeatures,
+                                debugEnabled = debugEnabled,
+                                settings = settings,
+                                hasDeletionPassword = viewModel.hasDeletionPassword(),
+                                onVideoPreviewAutoPlay = viewModel::setVideoPreviewAutoPlay,
+                                onPreviewSwipeNavigation = container.preferences::setPreviewSwipeNavigation,
+                                onDeleteToTrash = viewModel::setDeleteToTrash,
+                                onHideSensitiveContent = viewModel::setHideSensitiveContent,
+                                onLanguage = viewModel::setLanguage,
+                                onDeletionPassword = viewModel::setDeletionPassword,
+                                onDebugEnabled = viewModel::setDebugEnabled,
+                                onPermissions = { permissionLauncher.launch(mediaPermissions) },
+                                onExportLog = { logExportLauncher.launch("keepg-debug.log") },
+                                onClearLog = viewModel::clearDebugLog,
+                                onShowLog = viewModel::debugSnapshot,
+                            )
+                        }
                     }
                 }
-            },
-            snackbarHost = { SnackbarHost(snackbar) },
-        ) { padding ->
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                when (tab) {
-                    TabV2.PHOTOS -> LibraryScreenV2(
-                        photos = visiblePhotos,
-                        locks = locks,
-                        unlocked = unlocked,
-                        favorites = favorites,
-                        selectedIds = selectedIds,
-                        settings = settings,
-                        query = query,
-                        typeFilter = typeFilter,
-                        sizeFilter = sizeFilter,
-                        extensionFilter = extensionFilter,
-                        onQuery = viewModel::setSearchQuery,
-                        onTypeFilter = viewModel::setTypeFilter,
-                        onSizeFilter = viewModel::setSizeFilter,
-                        onExtensionFilter = viewModel::setExtensionFilter,
-                        onSort = viewModel::setSortMode,
-                        onSortDescending = viewModel::setSortDescending,
-                        onGridColumns = viewModel::setGridColumns,
-                        onPhoto = ::openMedia,
-                        onToggleSelection = viewModel::toggleSelection,
-                        onClearSelection = viewModel::clearSelection,
-                        onSelectAll = { selectMedia(visiblePhotos) },
-                        onFavoriteSelected = viewModel::favoriteSelected,
-                        onShareSelected = { if (selectedPhotos.isNotEmpty()) shareTarget = selectedPhotos },
-                        onCollectionSelected = { if (selectedPhotos.isNotEmpty() && collections.isNotEmpty()) batchCollection = true },
-                        onProtectSelected = { if (selectedPhotos.isNotEmpty()) batchProtect = true },
-                        onVaultSelected = { vaultMedia(selectedPhotos) },
-                        onAnalyzeSelected = { analyzeMedia(selectedPhotos) },
-                        onDeleteSelected = { if (selectedPhotos.isNotEmpty()) deleteTarget = selectedPhotos },
-                        fullFeatures = fullFeatures,
-                    )
-                    TabV2.ALBUMS -> AlbumsScreenV2(
-                        photos = visiblePhotos,
-                        locks = locks,
-                        unlocked = unlocked,
-                        collections = collections,
-                        collectionItems = collectionItems,
-                        favorites = favorites,
-                        selectedIds = selectedIds,
-                        settings = settings,
-                        onPhoto = ::openMedia,
-                        onToggleSelection = viewModel::toggleSelection,
-                        onGridColumns = viewModel::setGridColumns,
-                        onCreateCollection = viewModel::createCollection,
-                        onLockAlbum = { id, name -> lockTarget = LockTargetV2("ALBUM", id.toString(), name) },
-                        onUnlock = { unlock(it) },
-                        onSelectMedia = ::selectMedia,
-                        onFavoriteMedia = ::favoriteMedia,
-                        onShareMedia = { shareTarget = it },
-                        onDeleteMedia = { deleteTarget = it },
-                        onVaultMedia = ::vaultMedia,
-                        allowProtection = fullFeatures,
-                    )
-                    TabV2.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
-                    TabV2.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
-                    TabV2.SETTINGS -> GallerySettingsScreen(
-                        photoCount = photos.size,
-                        faceCount = faces.size,
-                        lockCount = locks.size,
-                        fullFeatures = fullFeatures,
-                        debugEnabled = debugEnabled,
-                        settings = settings,
-                        hasDeletionPassword = viewModel.hasDeletionPassword(),
-                        onVideoPreviewAutoPlay = viewModel::setVideoPreviewAutoPlay,
-                        onDeleteToTrash = viewModel::setDeleteToTrash,
-                        onHideSensitiveContent = viewModel::setHideSensitiveContent,
-                        onLanguage = viewModel::setLanguage,
-                        onDeletionPassword = viewModel::setDeletionPassword,
-                        onDebugEnabled = viewModel::setDebugEnabled,
-                        onPermissions = { permissionLauncher.launch(mediaPermissions) },
-                        onExportLog = { logExportLauncher.launch("keepg-debug.log") },
-                        onClearLog = viewModel::clearDebugLog,
-                        onShowLog = viewModel::debugSnapshot,
-                    )
-                }
             }
+
+            if (showLaunch) KeepGLaunchAnimation(Modifier.fillMaxSize())
         }
 
         preview?.let { media ->
+            val currentIndex = visiblePhotos.indexOfFirst { it.mediaId == media.mediaId }
             MediaPreviewDialogV2(
                 photo = media,
                 lock = findLock(media, locks),
                 collections = collections,
                 isFavorite = media.mediaId in favorites,
                 fullFeatures = fullFeatures,
+                swipeNavigationEnabled = settings.previewSwipeNavigation,
+                canNavigatePrevious = currentIndex > 0,
+                canNavigateNext = currentIndex >= 0 && currentIndex < visiblePhotos.lastIndex,
+                onPrevious = { navigatePreview(-1) },
+                onNext = { navigatePreview(1) },
                 onDismiss = { previewId = null },
                 onFavorite = { viewModel.toggleFavorite(media.mediaId) },
                 onShare = { password -> shareMedia(listOf(media), password) },

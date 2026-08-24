@@ -23,6 +23,7 @@ internal fun GallerySettingsScreen(
     settings: GallerySettings,
     hasDeletionPassword: Boolean,
     onVideoPreviewAutoPlay: (Boolean) -> Unit,
+    onPreviewSwipeNavigation: (Boolean) -> Unit,
     onDeleteToTrash: (Boolean) -> Unit,
     onHideSensitiveContent: (Boolean) -> Unit,
     onLanguage: (AppLanguage) -> Unit,
@@ -63,6 +64,14 @@ internal fun GallerySettingsScreen(
         }
         item {
             ListItem(
+                { Text("Swipe between previews") },
+                supportingContent = { Text("Swipe left or right in image and video previews to move through the current library order. Disabled while media is zoomed in.") },
+                leadingContent = { Icon(Icons.Default.SwapHoriz, null) },
+                trailingContent = { Switch(settings.previewSwipeNavigation, onPreviewSwipeNavigation) },
+            )
+        }
+        item {
+            ListItem(
                 { Text(tr("Delete to recoverable trash")) },
                 supportingContent = { Text(tr("Use Android MediaStore trash when available instead of immediate permanent deletion.")) },
                 leadingContent = { Icon(Icons.Default.DeleteSweep, null) },
@@ -90,13 +99,13 @@ internal fun GallerySettingsScreen(
                 { Text(tr("Deletion password")) },
                 supportingContent = { Text(tr("Set or replace the password required before deleting media.")) },
                 leadingContent = { Icon(Icons.Default.Password, null) },
-                trailingContent = { TextButton({ password = ""; passwordError = false; passwordDialog = true }) { Text(if (hasDeletionPassword) tr("Set password") else tr("Set password")) } },
+                trailingContent = { TextButton({ password = ""; passwordError = false; passwordDialog = true }) { Text(tr("Set password")) } },
             )
         }
         item {
             ListItem(
                 { Text(tr("Media permissions")) },
-                supportingContent = { Text("Grant or review Android photo, video and media-location access.") },
+                supportingContent = { Text("Grant or review Android photo, video and media-location access. Camera access is requested only when opening KeepG Camera.") },
                 leadingContent = { Icon(Icons.Default.AdminPanelSettings, null) },
                 trailingContent = { TextButton(onPermissions) { Text(tr("Grant")) } },
             )
@@ -106,6 +115,7 @@ internal fun GallerySettingsScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Broad media support", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("JPEG/JFIF, PNG, WebP, GIF, BMP, HEIC/HEIF, AVIF, DNG, TIFF, ICO, SVG and Android-indexed MP4/MOV/3GP/MKV/WebM/AVI/MPEG/TS media are recognized when a device decoder/provider exposes them.")
+                    Text("The home-screen KeepG widget provides Photos, Albums, Camera, and Vault shortcuts when supported by the launcher.")
                 }
             }
         }
