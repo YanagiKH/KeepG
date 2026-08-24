@@ -17,14 +17,14 @@ class MediaTransformsTest {
     fun landscapeImagePanIsBoundedAfterZoom() {
         val clamped = clampMediaTranslation(1080, 1920, 4000, 2000, 3f, Offset(5000f, -5000f))
         assertEquals(1080f, clamped.x, 0.01f)
-        assertEquals(-270f, clamped.y, 0.01f)
+        assertEquals(0f, clamped.y, 0.01f)
     }
 
     @Test
     fun portraitRotationReclampsExistingPan() {
         val before = clampMediaTranslation(1080, 1920, 1080, 1920, 4f, Offset(1400f, 2400f))
         val after = clampMediaTranslation(1920, 1080, 1080, 1920, 4f, before)
-        assertEquals(1080f, after.x, 0.01f)
+        assertEquals(255f, after.x, 0.01f)
         assertEquals(1620f, after.y, 0.01f)
     }
 
