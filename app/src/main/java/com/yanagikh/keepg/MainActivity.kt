@@ -7,7 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
-import com.yanagikh.keepg.ui.KeepGApp
+import com.yanagikh.keepg.ui.KeepGAppV2
 import com.yanagikh.keepg.ui.KeepGTheme
 
 class MainActivity : FragmentActivity() {
@@ -19,7 +19,7 @@ class MainActivity : FragmentActivity() {
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
         setContent {
             KeepGTheme {
-                KeepGApp(
+                KeepGAppV2(
                     viewModel,
                     { title, success, error ->
                         if (!DeviceAuthenticator.isAvailable(this)) error("No supported device credential is configured")
