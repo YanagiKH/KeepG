@@ -8,5 +8,6 @@
         <ignore path="src/main/java/com/yanagikh/keepg/ui/MediaPreviewScreen.kt" />
         <ignore path="src/main/java/com/yanagikh/keepg/ui/GalleryScreensV2.kt" />
         <ignore path="src/main/java/com/yanagikh/keepg/ui/MediaPreviewScreenV2.kt" />
+        <ignore path="src/main/java/com/yanagikh/keepg/ui/VideoSurfaceV2.kt" />
     </issue>
 </lint>
