@@ -1,10 +1,14 @@
 package com.yanagikh.keepg.ui
 
 import android.net.Uri
-import android.view.TextureView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -17,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -33,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
@@ -65,6 +69,11 @@ internal fun MediaPreviewDialogV2(
     collections: List<CollectionEntity>,
     isFavorite: Boolean,
     fullFeatures: Boolean,
+    swipeNavigationEnabled: Boolean,
+    canNavigatePrevious: Boolean,
+    canNavigateNext: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onDismiss: () -> Unit,
     onFavorite: () -> Unit,
     onShare: (String?) -> Unit,
@@ -84,6 +93,7 @@ internal fun MediaPreviewDialogV2(
     onRename: (String) -> Unit,
     onRefresh: () -> Unit,
 ) {
+    val isVideo = photo.mimeType.startsWith("video/")
     var showShare by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
@@ -91,6 +101,9 @@ internal fun MediaPreviewDialogV2(
     var showMore by remember { mutableStateOf(false) }
     var pickCollection by remember { mutableStateOf(false) }
     var repair by remember { mutableStateOf(false) }
+    var videoChromeVisible by rememberSaveable(photo.mediaId) { mutableStateOf(true) }
+    var previewScale by remember(photo.mediaId) { mutableFloatStateOf(1f) }
+    val chromeVisible = !isVideo || videoChromeVisible
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -98,43 +111,93 @@ internal fun MediaPreviewDialogV2(
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
-                TopAppBar(
-                    title = { Text(photo.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    navigationIcon = { IconButton(onDismiss) { Icon(Icons.Default.ArrowBack, tr("Back")) } },
-                    actions = {
-                        IconButton(onFavorite) { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite")) }
-                        IconButton({ showShare = true }) { Icon(Icons.Default.Share, tr("Share")) }
-                        Box {
-                            IconButton({ showMore = true }) { Icon(Icons.Default.MoreVert, null) }
-                            DropdownMenu(showMore, { showMore = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(if (lock == null) tr("Protect") else tr("Unlock")) },
-                                    leadingIcon = { Icon(if (lock == null) Icons.Default.Lock else Icons.Default.LockOpen, null) },
-                                    onClick = { showMore = false; if (lock == null) onLock() else onRemoveLock(lock) },
-                                )
-                                if (fullFeatures) {
-                                    DropdownMenuItem({ Text("Vault") }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
-                                    if (photo.mimeType.startsWith("image/")) {
-                                        DropdownMenuItem({ Text(tr("Analyze")) }, { showMore = false; onAnalyze() }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) })
-                                        DropdownMenuItem({ Text(tr("Links")) }, { showMore = false; onDetectLinks(null, null) }, leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) })
+                AnimatedVisibility(chromeVisible, enter = fadeIn(), exit = fadeOut()) {
+                    TopAppBar(
+                        title = { Text(photo.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        navigationIcon = { IconButton(onDismiss) { Icon(Icons.Default.ArrowBack, tr("Back")) } },
+                        actions = {
+                            IconButton(onFavorite) { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite")) }
+                            IconButton({ showShare = true }) { Icon(Icons.Default.Share, tr("Share")) }
+                            Box {
+                                IconButton({ showMore = true }) { Icon(Icons.Default.MoreVert, null) }
+                                DropdownMenu(showMore, { showMore = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (lock == null) tr("Protect") else tr("Unlock")) },
+                                        leadingIcon = { Icon(if (lock == null) Icons.Default.Lock else Icons.Default.LockOpen, null) },
+                                        onClick = { showMore = false; if (lock == null) onLock() else onRemoveLock(lock) },
+                                    )
+                                    if (fullFeatures) {
+                                        DropdownMenuItem({ Text("Vault") }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
+                                        if (photo.mimeType.startsWith("image/")) {
+                                            DropdownMenuItem({ Text(tr("Analyze")) }, { showMore = false; onAnalyze() }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) })
+                                            DropdownMenuItem({ Text(tr("Links")) }, { showMore = false; onDetectLinks(null, null) }, leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) })
+                                        }
+                                        DropdownMenuItem({ Text(tr("Repair")) }, { showMore = false; repair = true }, leadingIcon = { Icon(Icons.Default.Build, null) })
                                     }
-                                    DropdownMenuItem({ Text(tr("Repair")) }, { showMore = false; repair = true }, leadingIcon = { Icon(Icons.Default.Build, null) })
+                                    DropdownMenuItem({ Text(tr("Collection")) }, { showMore = false; pickCollection = true }, leadingIcon = { Icon(Icons.Default.Collections, null) }, enabled = collections.isNotEmpty())
                                 }
-                                DropdownMenuItem({ Text(tr("Collection")) }, { showMore = false; pickCollection = true }, leadingIcon = { Icon(Icons.Default.Collections, null) }, enabled = collections.isNotEmpty())
                             }
-                        }
-                    },
-                )
-                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceVariant)) {
-                    if (photo.mimeType.startsWith("video/")) ZoomableVideoPlayerV2(photo)
-                    else ZoomableImagePreviewV2(photo, fullFeatures, onDetectLinks)
+                        },
+                    )
                 }
-                NavigationBar {
-                    NavigationBarItem(isFavorite, onFavorite, { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) }, label = { Text(tr("Favorite")) })
-                    NavigationBarItem(false, { showShare = true }, { Icon(Icons.Default.Share, null) }, label = { Text(tr("Share")) })
-                    NavigationBarItem(false, { showEditor = true }, { Icon(Icons.Default.Edit, null) }, label = { Text(tr("Edit")) }, enabled = fullFeatures)
-                    NavigationBarItem(false, { showDelete = true }, { Icon(Icons.Default.Delete, null) }, label = { Text(tr("Delete")) })
-                    NavigationBarItem(false, { showDetails = true }, { Icon(Icons.Default.Info, null) }, label = { Text(tr("Details")) })
+
+                Box(
+                    Modifier.weight(1f).fillMaxWidth().clipToBounds().background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    if (isVideo) {
+                        ZoomableVideoPlayerV2(
+                            photo = photo,
+                            controlsVisible = videoChromeVisible,
+                            onControlsVisibleChange = { videoChromeVisible = it },
+                            swipeNavigationEnabled = swipeNavigationEnabled,
+                            canNavigatePrevious = canNavigatePrevious,
+                            canNavigateNext = canNavigateNext,
+                            onPrevious = onPrevious,
+                            onNext = onNext,
+                            onScaleChanged = { previewScale = it },
+                        )
+                    } else {
+                        ZoomableImagePreviewV2(
+                            photo = photo,
+                            linkDetection = fullFeatures,
+                            onDetectLinks = onDetectLinks,
+                            swipeNavigationEnabled = swipeNavigationEnabled,
+                            canNavigatePrevious = canNavigatePrevious,
+                            canNavigateNext = canNavigateNext,
+                            onPrevious = onPrevious,
+                            onNext = onNext,
+                            onScaleChanged = { previewScale = it },
+                        )
+                    }
+
+                    if (swipeNavigationEnabled && previewScale <= 1.02f && chromeVisible) {
+                        if (canNavigatePrevious) {
+                            Surface(
+                                modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = .72f),
+                            ) { IconButton(onPrevious) { Icon(Icons.Default.ChevronLeft, "Previous media") } }
+                        }
+                        if (canNavigateNext) {
+                            Surface(
+                                modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = .72f),
+                            ) { IconButton(onNext) { Icon(Icons.Default.ChevronRight, "Next media") } }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(chromeVisible, enter = fadeIn(), exit = fadeOut()) {
+                    PreviewActionBarV2(
+                        isFavorite = isFavorite,
+                        fullFeatures = fullFeatures,
+                        onFavorite = onFavorite,
+                        onShare = { showShare = true },
+                        onEdit = { showEditor = true },
+                        onDelete = { showDelete = true },
+                        onDetails = { showDetails = true },
+                    )
                 }
             }
         }
@@ -181,13 +244,72 @@ internal fun MediaPreviewDialogV2(
 }
 
 @Composable
-private fun ZoomableImagePreviewV2(photo: PhotoEntity, linkDetection: Boolean, onDetectLinks: (Float?, Float?) -> Unit) {
+private fun PreviewActionBarV2(
+    isFavorite: Boolean,
+    fullFeatures: Boolean,
+    onFavorite: () -> Unit,
+    onShare: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDetails: () -> Unit,
+) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().heightIn(min = 66.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PreviewActionCellV2(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr("Favorite"), true, onFavorite, Modifier.weight(1f))
+            PreviewActionCellV2(Icons.Default.Share, tr("Share"), true, onShare, Modifier.weight(1f))
+            PreviewActionCellV2(Icons.Default.Edit, tr("Edit"), fullFeatures, onEdit, Modifier.weight(1f))
+            PreviewActionCellV2(Icons.Default.Delete, tr("Delete"), true, onDelete, Modifier.weight(1f))
+            PreviewActionCellV2(Icons.Default.Info, tr("Details"), true, onDetails, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun PreviewActionCellV2(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val alpha = if (enabled) 1f else .38f
+    Column(
+        modifier
+            .fillMaxHeight()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 2.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, label, tint = LocalContentColor.current.copy(alpha = alpha))
+        Spacer(Modifier.height(2.dp))
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = alpha))
+    }
+}
+
+@Composable
+private fun ZoomableImagePreviewV2(
+    photo: PhotoEntity,
+    linkDetection: Boolean,
+    onDetectLinks: (Float?, Float?) -> Unit,
+    swipeNavigationEnabled: Boolean,
+    canNavigatePrevious: Boolean,
+    canNavigateNext: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onScaleChanged: (Float) -> Unit,
+) {
     var scale by remember(photo.mediaId) { mutableFloatStateOf(1f) }
     var translation by remember(photo.mediaId) { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    var swipeDistance by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(viewport, photo.width, photo.height, scale) {
         translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation)
+        onScaleChanged(scale)
     }
 
     Box(
@@ -200,11 +322,27 @@ private fun ZoomableImagePreviewV2(photo: PhotoEntity, linkDetection: Boolean, o
                     translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan)
                 }
             }
+            .pointerInput(photo.mediaId, scale, swipeNavigationEnabled, canNavigatePrevious, canNavigateNext) {
+                if (!swipeNavigationEnabled || scale > 1.02f) return@pointerInput
+                detectHorizontalDragGestures(
+                    onDragStart = { swipeDistance = 0f },
+                    onHorizontalDrag = { change, amount -> swipeDistance += amount; change.consume() },
+                    onDragEnd = {
+                        when (previewSwipeDirection(swipeDistance, 0f, size.width.toFloat())) {
+                            -1 -> if (canNavigatePrevious) onPrevious()
+                            1 -> if (canNavigateNext) onNext()
+                        }
+                        swipeDistance = 0f
+                    },
+                    onDragCancel = { swipeDistance = 0f },
+                )
+            }
             .pointerInput(photo.mediaId, scale, translation, viewport, linkDetection) {
                 detectTapGestures(
                     onDoubleTap = {
                         scale = if (scale > 1.01f) 1f else 3f
                         translation = Offset.Zero
+                        onScaleChanged(scale)
                     },
                     onLongPress = { position ->
                         if (!linkDetection || viewport.width <= 0 || viewport.height <= 0) return@detectTapGestures
@@ -234,37 +372,65 @@ private fun ZoomableImagePreviewV2(photo: PhotoEntity, linkDetection: Boolean, o
 }
 
 @Composable
-private fun ZoomableVideoPlayerV2(photo: PhotoEntity) {
+private fun ZoomableVideoPlayerV2(
+    photo: PhotoEntity,
+    controlsVisible: Boolean,
+    onControlsVisibleChange: (Boolean) -> Unit,
+    swipeNavigationEnabled: Boolean,
+    canNavigatePrevious: Boolean,
+    canNavigateNext: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onScaleChanged: (Float) -> Unit,
+) {
     val context = LocalContext.current
+    var position by rememberSaveable(photo.mediaId) { mutableLongStateOf(0L) }
+    var requestedPlay by rememberSaveable(photo.mediaId) { mutableStateOf(true) }
+    var speed by rememberSaveable(photo.mediaId) { mutableFloatStateOf(1f) }
     val player = remember(photo.mediaId) {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_ONE
             setMediaItem(MediaItem.fromUri(Uri.parse(photo.uri)))
+            playbackParameters = PlaybackParameters(speed)
+            if (position > 0L) seekTo(position)
             prepare()
-            playWhenReady = true
+            playWhenReady = requestedPlay
         }
     }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var scale by remember(photo.mediaId) { mutableFloatStateOf(1f) }
     var translation by remember(photo.mediaId) { mutableStateOf(Offset.Zero) }
-    var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(photo.durationMs.coerceAtLeast(0L)) }
-    var speed by remember { mutableFloatStateOf(1f) }
     var speedMenu by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf(true) }
+    var playing by remember { mutableStateOf(requestedPlay) }
+    var swipeDistance by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) {
+        onDispose {
+            position = player.currentPosition.coerceAtLeast(0L)
+            requestedPlay = player.playWhenReady
+            player.release()
+        }
+    }
     LaunchedEffect(player) {
         while (true) {
             position = player.currentPosition.coerceAtLeast(0L)
             val d = player.duration
             if (d > 0L) duration = d
             playing = player.isPlaying
+            requestedPlay = player.playWhenReady
             delay(250)
         }
     }
     LaunchedEffect(viewport, photo.width, photo.height, scale) {
         translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation)
+        onScaleChanged(scale)
+    }
+    LaunchedEffect(controlsVisible, speedMenu, photo.mediaId) {
+        if (controlsVisible && !speedMenu) {
+            delay(3_000)
+            onControlsVisibleChange(false)
+        }
     }
 
     Box(
@@ -274,43 +440,101 @@ private fun ZoomableVideoPlayerV2(photo: PhotoEntity) {
                     val nextScale = normalizedZoom(scale, zoom, 12f)
                     scale = nextScale
                     translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan)
+                    onScaleChanged(nextScale)
+                    onControlsVisibleChange(true)
                 }
             }
+            .pointerInput(photo.mediaId, scale, swipeNavigationEnabled, canNavigatePrevious, canNavigateNext) {
+                if (!swipeNavigationEnabled || scale > 1.02f) return@pointerInput
+                detectHorizontalDragGestures(
+                    onDragStart = { swipeDistance = 0f },
+                    onHorizontalDrag = { change, amount -> swipeDistance += amount; change.consume() },
+                    onDragEnd = {
+                        when (previewSwipeDirection(swipeDistance, 0f, size.width.toFloat())) {
+                            -1 -> if (canNavigatePrevious) onPrevious()
+                            1 -> if (canNavigateNext) onNext()
+                        }
+                        swipeDistance = 0f
+                    },
+                    onDragCancel = { swipeDistance = 0f },
+                )
+            }
             .pointerInput(photo.mediaId) {
-                detectTapGestures(onDoubleTap = { scale = if (scale > 1.01f) 1f else 3f; translation = Offset.Zero })
+                detectTapGestures(
+                    onTap = { onControlsVisibleChange(!controlsVisible) },
+                    onDoubleTap = {
+                        scale = if (scale > 1.01f) 1f else 3f
+                        translation = Offset.Zero
+                        onScaleChanged(scale)
+                        onControlsVisibleChange(true)
+                    },
+                )
             },
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer(scaleX = scale, scaleY = scale, translationX = translation.x, translationY = translation.y),
-            factory = { ctx -> TextureView(ctx).also(player::setVideoTextureView) },
-            update = player::setVideoTextureView,
-            onRelease = player::clearVideoTextureView,
-        )
-        Surface(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = .88f),
+        Box(
+            Modifier.fillMaxSize().clipToBounds().graphicsLayer(
+                scaleX = scale,
+                scaleY = scale,
+                translationX = translation.x,
+                translationY = translation.y,
+            ),
         ) {
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                if (duration > 0L) {
-                    Slider(
-                        value = position.coerceAtMost(duration).toFloat(),
-                        onValueChange = { player.seekTo(it.toLong()) },
-                        valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ if (player.isPlaying) player.pause() else player.play() }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null) }
-                    Text("${formatDuration(position)} / ${formatDuration(duration)}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    Box {
-                        TextButton({ speedMenu = true }) { Text("${speed}×") }
-                        DropdownMenu(speedMenu, { speedMenu = false }) {
-                            listOf(.25f, .5f, 1f, 1.5f, 2f, 3f).forEach { value ->
-                                DropdownMenuItem({ Text("${value}×") }, { speed = value; player.playbackParameters = PlaybackParameters(value); speedMenu = false })
+            FittedVideoTextureSurfaceV2(
+                player = player,
+                fallbackWidth = photo.width,
+                fallbackHeight = photo.height,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .88f),
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    if (duration > 0L) {
+                        Slider(
+                            value = position.coerceAtMost(duration).toFloat(),
+                            onValueChange = {
+                                onControlsVisibleChange(true)
+                                position = it.toLong()
+                                player.seekTo(position)
+                            },
+                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton({
+                            onControlsVisibleChange(true)
+                            if (player.isPlaying) player.pause() else player.play()
+                            requestedPlay = player.playWhenReady
+                        }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null) }
+                        Text("${formatDuration(position)} / ${formatDuration(duration)}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                        Box {
+                            TextButton({ speedMenu = true; onControlsVisibleChange(true) }) { Text("${speed}×") }
+                            DropdownMenu(speedMenu, { speedMenu = false }) {
+                                listOf(.25f, .5f, 1f, 1.5f, 2f, 3f).forEach { value ->
+                                    DropdownMenuItem(
+                                        { Text("${value}×") },
+                                        {
+                                            speed = value
+                                            player.playbackParameters = PlaybackParameters(value)
+                                            speedMenu = false
+                                            onControlsVisibleChange(true)
+                                        },
+                                    )
+                                }
                             }
                         }
+                        IconButton({ scale = 1f; translation = Offset.Zero; onScaleChanged(1f); onControlsVisibleChange(true) }) { Icon(Icons.Default.CenterFocusStrong, "Reset zoom") }
                     }
-                    IconButton({ scale = 1f; translation = Offset.Zero }) { Icon(Icons.Default.CenterFocusStrong, "Reset zoom") }
                 }
             }
         }
