@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
@@ -18,12 +19,14 @@ import com.yanagikh.keepg.widget.KeepGWidgetProvider
 class MainActivity : FragmentActivity() {
     private lateinit var viewModel: MainViewModel
     private var startDestination by mutableStateOf<String?>(null)
+    private var destinationRequestId by mutableLongStateOf(0L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as KeepGApplication
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
         startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
+        if (startDestination != null) destinationRequestId++
         setContent {
             KeepGTheme {
                 KeepGAppV2(
@@ -34,6 +37,7 @@ class MainActivity : FragmentActivity() {
                     },
                     mediaPermissions = requiredMediaPermissions(),
                     initialDestination = startDestination,
+                    destinationRequestId = destinationRequestId,
                 )
             }
         }
@@ -43,6 +47,7 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
+        destinationRequestId++
     }
 
     private fun requiredMediaPermissions(): Array<String> = buildList {
