@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
-    <!-- Keep Media3's unstable-API check enabled everywhere except the two UI files
-         that intentionally use PlayerView/AspectRatioFrameLayout. Media3 documents
-         these APIs as opt-in; this is the lint.xml equivalent for source that cannot
-         propagate a package/file annotation across declarations. -->
+    <!-- Media3 intentionally marks several playback APIs as unstable. Keep the
+         check enabled globally and scope the opt-in only to the gallery/preview
+         files that own ExoPlayer/TextureView playback integration. -->
     <issue id="UnsafeOptInUsageError">
         <ignore path="src/main/java/com/yanagikh/keepg/ui/GalleryScreens.kt" />
         <ignore path="src/main/java/com/yanagikh/keepg/ui/MediaPreviewScreen.kt" />
+        <ignore path="src/main/java/com/yanagikh/keepg/ui/GalleryScreensV2.kt" />
+        <ignore path="src/main/java/com/yanagikh/keepg/ui/MediaPreviewScreenV2.kt" />
     </issue>
 </lint>
