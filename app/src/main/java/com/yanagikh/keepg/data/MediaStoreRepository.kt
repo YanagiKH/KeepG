@@ -3,6 +3,8 @@ package com.yanagikh.keepg.data
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import com.yanagikh.keepg.debug.KeepGLog
 import com.yanagikh.keepg.media.MediaFormatRegistry
@@ -26,7 +28,21 @@ class MediaStoreRepository(
         media.size
     }
 
-    private fun scanCollection(collection: Uri, scanStartedAt: Long, isVideo: Boolean): List<PhotoEntity> {
+    suspend fun listTrashed(): List<PhotoEntity> = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < 30) return@withContext emptyList()
+        val scanStartedAt = System.currentTimeMillis()
+        buildList {
+            addAll(scanCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = false, trashedOnly = true))
+            addAll(scanCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = true, trashedOnly = true))
+        }.sortedByDescending { it.dateTaken }
+    }
+
+    private fun scanCollection(
+        collection: Uri,
+        scanStartedAt: Long,
+        isVideo: Boolean,
+        trashedOnly: Boolean = false,
+    ): List<PhotoEntity> {
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
             add(MediaStore.MediaColumns.DISPLAY_NAME)
@@ -42,46 +58,54 @@ class MediaStoreRepository(
         }.toTypedArray()
         val result = mutableListOf<PhotoEntity>()
         runCatching {
-            context.contentResolver.query(
-                collection,
-                projection,
-                null,
-                null,
-                "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC",
-            )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN)
-                val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-                val widthCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.WIDTH)
-                val heightCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.HEIGHT)
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.BUCKET_ID)
-                val bucketNameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME)
-                val durationCol = if (isVideo) cursor.getColumnIndex(MediaStore.Video.VideoColumns.DURATION) else -1
-                while (cursor.moveToNext()) {
-                    val rawId = cursor.getLong(idCol)
+            val cursor = if (trashedOnly && Build.VERSION.SDK_INT >= 30) {
+                val args = Bundle().apply {
+                    putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+                }
+                context.contentResolver.query(collection, projection, args, null)
+            } else {
+                context.contentResolver.query(
+                    collection,
+                    projection,
+                    null,
+                    null,
+                    "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC",
+                )
+            }
+            cursor?.use {
+                val idCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val mimeCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val dateCol = it.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN)
+                val dateAddedCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                val widthCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.WIDTH)
+                val heightCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.HEIGHT)
+                val sizeCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.BUCKET_ID)
+                val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME)
+                val durationCol = if (isVideo) it.getColumnIndex(MediaStore.Video.VideoColumns.DURATION) else -1
+                while (it.moveToNext()) {
+                    val rawId = it.getLong(idCol)
                     val stableId = if (isVideo) -(rawId + 1L) else rawId
-                    val name = cursor.getString(nameCol) ?: "Media $rawId"
-                    val reportedMime = cursor.getString(mimeCol)
+                    val name = it.getString(nameCol) ?: "Media $rawId"
+                    val reportedMime = it.getString(mimeCol)
                     val mime = MediaFormatRegistry.normalizedMime(name, reportedMime)
                     if (!MediaFormatRegistry.isSupportedMedia(name, mime)) continue
-                    val taken = cursor.getLong(dateCol).takeIf { it > 0L }
-                        ?: (cursor.getLong(dateAddedCol) * 1_000L).takeIf { it > 0L }
+                    val taken = it.getLong(dateCol).takeIf { value -> value > 0L }
+                        ?: (it.getLong(dateAddedCol) * 1_000L).takeIf { value -> value > 0L }
                         ?: scanStartedAt
                     result += PhotoEntity(
                         mediaId = stableId,
                         uri = ContentUris.withAppendedId(collection, rawId).toString(),
-                        bucketId = cursor.getLong(bucketIdCol),
-                        bucketName = cursor.getString(bucketNameCol) ?: "Unsorted",
+                        bucketId = it.getLong(bucketIdCol),
+                        bucketName = it.getString(bucketNameCol) ?: "Unsorted",
                         displayName = name,
                         mimeType = mime,
                         dateTaken = taken,
-                        width = cursor.getInt(widthCol),
-                        height = cursor.getInt(heightCol),
-                        sizeBytes = cursor.getLong(sizeCol).coerceAtLeast(0L),
-                        durationMs = if (durationCol >= 0) cursor.getLong(durationCol).coerceAtLeast(0L) else 0L,
+                        width = it.getInt(widthCol),
+                        height = it.getInt(heightCol),
+                        sizeBytes = it.getLong(sizeCol).coerceAtLeast(0L),
+                        durationMs = if (durationCol >= 0) it.getLong(durationCol).coerceAtLeast(0L) else 0L,
                         lastScannedAt = scanStartedAt,
                     )
                 }
