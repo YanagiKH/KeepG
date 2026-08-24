@@ -255,7 +255,7 @@ private fun PreviewActionBarV2(
 ) {
     Surface(tonalElevation = 3.dp) {
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().heightIn(min = 66.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().height(66.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PreviewActionCellV2(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr("Favorite"), true, onFavorite, Modifier.weight(1f))
