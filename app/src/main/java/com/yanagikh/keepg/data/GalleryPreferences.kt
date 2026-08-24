@@ -13,6 +13,7 @@ enum class MediaSizeFilter { ANY, SMALL, MEDIUM, LARGE }
 
 data class GallerySettings(
     val videoPreviewAutoPlay: Boolean = true,
+    val previewSwipeNavigation: Boolean = true,
     val deleteToTrash: Boolean = true,
     val hideSensitiveContent: Boolean = false,
     val language: AppLanguage = AppLanguage.AUTO,
@@ -31,6 +32,7 @@ class GalleryPreferences(context: Context) {
     val sensitiveIds: StateFlow<Set<Long>> = _sensitiveIds
 
     fun setVideoPreviewAutoPlay(value: Boolean) = updateSettings { it.copy(videoPreviewAutoPlay = value) }
+    fun setPreviewSwipeNavigation(value: Boolean) = updateSettings { it.copy(previewSwipeNavigation = value) }
     fun setDeleteToTrash(value: Boolean) = updateSettings { it.copy(deleteToTrash = value) }
     fun setHideSensitiveContent(value: Boolean) = updateSettings { it.copy(hideSensitiveContent = value) }
     fun setLanguage(value: AppLanguage) = updateSettings { it.copy(language = value) }
@@ -84,6 +86,7 @@ class GalleryPreferences(context: Context) {
         _settings.value = next
         prefs.edit()
             .putBoolean(KEY_VIDEO_PREVIEW, next.videoPreviewAutoPlay)
+            .putBoolean(KEY_PREVIEW_SWIPE, next.previewSwipeNavigation)
             .putBoolean(KEY_DELETE_TRASH, next.deleteToTrash)
             .putBoolean(KEY_HIDE_SENSITIVE, next.hideSensitiveContent)
             .putString(KEY_LANGUAGE, next.language.name)
@@ -95,6 +98,7 @@ class GalleryPreferences(context: Context) {
 
     private fun loadSettings() = GallerySettings(
         videoPreviewAutoPlay = prefs.getBoolean(KEY_VIDEO_PREVIEW, true),
+        previewSwipeNavigation = prefs.getBoolean(KEY_PREVIEW_SWIPE, true),
         deleteToTrash = prefs.getBoolean(KEY_DELETE_TRASH, true),
         hideSensitiveContent = prefs.getBoolean(KEY_HIDE_SENSITIVE, false),
         language = enumValueOrDefault(prefs.getString(KEY_LANGUAGE, null), AppLanguage.AUTO),
@@ -111,6 +115,7 @@ class GalleryPreferences(context: Context) {
 
     private companion object {
         const val KEY_VIDEO_PREVIEW = "video_preview_auto_play"
+        const val KEY_PREVIEW_SWIPE = "preview_swipe_navigation"
         const val KEY_DELETE_TRASH = "delete_to_trash"
         const val KEY_HIDE_SENSITIVE = "hide_sensitive"
         const val KEY_LANGUAGE = "language"
