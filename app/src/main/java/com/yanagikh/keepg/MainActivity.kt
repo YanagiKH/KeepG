@@ -5,9 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
@@ -17,13 +14,12 @@ import com.yanagikh.keepg.widget.KeepGWidgetProvider
 
 class MainActivity : FragmentActivity() {
     private lateinit var viewModel: MainViewModel
-    private var startDestination by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as KeepGApplication
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
-        startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
+        val startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
         setContent {
             KeepGTheme {
                 KeepGAppV2(
@@ -42,9 +38,8 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val destination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
-        startDestination = null
-        startDestination = destination
+        // Re-create the Compose tree so an identical widget shortcut is honored repeatedly.
+        recreate()
     }
 
     private fun requiredMediaPermissions(): Array<String> = buildList {
