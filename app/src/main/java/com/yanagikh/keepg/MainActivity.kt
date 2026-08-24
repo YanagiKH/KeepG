@@ -1,9 +1,13 @@
 package com.yanagikh.keepg
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
@@ -13,12 +17,13 @@ import com.yanagikh.keepg.widget.KeepGWidgetProvider
 
 class MainActivity : FragmentActivity() {
     private lateinit var viewModel: MainViewModel
+    private var startDestination by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as KeepGApplication
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
-        val initialDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
+        startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
         setContent {
             KeepGTheme {
                 KeepGAppV2(
@@ -28,10 +33,16 @@ class MainActivity : FragmentActivity() {
                         else DeviceAuthenticator.authenticate(this, title, success, error)
                     },
                     mediaPermissions = requiredMediaPermissions(),
-                    initialDestination = initialDestination,
+                    initialDestination = startDestination,
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
     }
 
     private fun requiredMediaPermissions(): Array<String> = buildList {
