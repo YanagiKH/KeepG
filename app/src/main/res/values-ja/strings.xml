@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">KeepG</string>
+    <string name="widget_description">プライベートギャラリーのショートカット</string>
+    <string name="widget_photos">写真</string>
+    <string name="widget_albums">アルバム</string>
+    <string name="widget_camera">カメラ</string>
+    <string name="widget_vault">保管庫</string>
+</resources>

@@ -10,7 +10,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="KeepG"
+        android:text="@string/app_name"
         android:textStyle="bold"
         android:textSize="18sp"
         android:textColor="#FFFFFFFF"
@@ -19,7 +19,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Private gallery shortcuts"
+        android:text="@string/widget_description"
         android:textSize="11sp"
         android:textColor="#D8FFFFFF"
         android:paddingBottom="8dp" />
@@ -36,7 +36,7 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Photos"
+            android:text="@string/widget_photos"
             android:textAllCaps="false" />
 
         <Button
@@ -44,7 +44,7 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Albums"
+            android:text="@string/widget_albums"
             android:textAllCaps="false" />
 
         <Button
@@ -52,7 +52,7 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Camera"
+            android:text="@string/widget_camera"
             android:textAllCaps="false" />
 
         <Button
@@ -60,7 +60,7 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Vault"
+            android:text="@string/widget_vault"
             android:textAllCaps="false" />
     </LinearLayout>
 </LinearLayout>

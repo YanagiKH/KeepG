@@ -105,5 +105,12 @@ class MediaActionRepository(private val context: Context) {
         else -> "*/*"
     }
 
-    private fun sanitizeName(value: String): String = value.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").take(120)
+    private fun sanitizeName(value: String): String = value
+        .replace(Regex("[\\p{Cc}\\\\/:*?\"<>|]"), "_")
+        .trim()
+        .take(120)
+        .trimStart('.', ' ')
+        .trimEnd('.', ' ')
+        .takeUnless { it == "." || it == ".." }
+        .orEmpty()
 }

@@ -6,6 +6,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -18,14 +25,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yanagikh.keepg.KeepGApplication
 import com.yanagikh.keepg.MainViewModel
 import com.yanagikh.keepg.data.*
-import com.yanagikh.keepg.security.PasswordHasher
 import com.yanagikh.keepg.widget.KeepGWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private enum class TabV2(val labelKey: String, val icon: ImageVector) {
     PHOTOS("Photos", Icons.Default.PhotoLibrary),
@@ -48,31 +56,38 @@ fun KeepGAppV2(
     val context = LocalContext.current
     val container = remember(context) { (context.applicationContext as KeepGApplication).container }
     val scope = rememberCoroutineScope()
-    val photos by viewModel.photos.collectAsState()
-    val visiblePhotos by viewModel.visiblePhotos.collectAsState()
-    val locks by viewModel.locks.collectAsState()
-    val faces by viewModel.faces.collectAsState()
-    val people by viewModel.people.collectAsState()
-    val rules by viewModel.rules.collectAsState()
-    val vault by viewModel.vault.collectAsState()
-    val collections by viewModel.collections.collectAsState()
-    val collectionItems by viewModel.collectionItems.collectAsState()
-    val unlocked by viewModel.sessionUnlocked.collectAsState()
-    val busy by viewModel.busy.collectAsState()
-    val message by viewModel.message.collectAsState()
-    val detectedLinks by viewModel.detectedLinks.collectAsState()
-    val debugEnabled by viewModel.debugEnabled.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val favorites by viewModel.favorites.collectAsState()
-    val selectedIds by viewModel.selectedMediaIds.collectAsState()
-    val selectedPhotos by viewModel.selectedPhotos.collectAsState()
-    val query by viewModel.searchQuery.collectAsState()
-    val typeFilter by viewModel.typeFilter.collectAsState()
-    val sizeFilter by viewModel.sizeFilter.collectAsState()
-    val extensionFilter by viewModel.extensionFilter.collectAsState()
+    val photos by viewModel.photos.collectAsStateWithLifecycle()
+    val visiblePhotos by viewModel.visiblePhotos.collectAsStateWithLifecycle()
+    val albumPhotos by viewModel.albumPhotos.collectAsStateWithLifecycle()
+    val locks by viewModel.locks.collectAsStateWithLifecycle()
+    val faces by viewModel.faces.collectAsStateWithLifecycle()
+    val people by viewModel.people.collectAsStateWithLifecycle()
+    val rules by viewModel.rules.collectAsStateWithLifecycle()
+    val vault by viewModel.vault.collectAsStateWithLifecycle()
+    val collections by viewModel.collections.collectAsStateWithLifecycle()
+    val collectionItems by viewModel.collectionItems.collectAsStateWithLifecycle()
+    val unlocked by viewModel.sessionUnlocked.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val detectedLinks by viewModel.detectedLinks.collectAsStateWithLifecycle()
+    val debugEnabled by viewModel.debugEnabled.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedMediaIds.collectAsStateWithLifecycle()
+    val selectedPhotos by viewModel.selectedPhotos.collectAsStateWithLifecycle()
+    val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val typeFilter by viewModel.typeFilter.collectAsStateWithLifecycle()
+    val sizeFilter by viewModel.sizeFilter.collectAsStateWithLifecycle()
+    val extensionFilter by viewModel.extensionFilter.collectAsStateWithLifecycle()
+    val includeImageText by viewModel.includeImageText.collectAsStateWithLifecycle()
+    val searchBucketId by viewModel.searchBucketId.collectAsStateWithLifecycle()
+    val textIndexing by viewModel.textIndexing.collectAsStateWithLifecycle()
+    val textIndexProgress by viewModel.textIndexProgress.collectAsStateWithLifecycle()
+    val mediaTextIndexCount by viewModel.mediaTextIndexCount.collectAsStateWithLifecycle()
     val fullFeatures = viewModel.fullFeatures
 
     CompositionLocalProvider(LocalAppLanguage provides settings.language) {
+        fun localized(key: String): String = UiLocalizer.text(settings.language, key)
+        fun localizedFormat(key: String, vararg args: Any): String = String.format(Locale.ROOT, localized(key), *args)
         val tabs = if (fullFeatures) TabV2.entries else listOf(TabV2.PHOTOS, TabV2.ALBUMS, TabV2.SETTINGS)
         val initialTab = when (initialDestination) {
             KeepGWidgetProvider.DEST_ALBUMS -> TabV2.ALBUMS
@@ -85,15 +100,16 @@ fun KeepGAppV2(
         val tab = tabs.firstOrNull { it.name == tabName } ?: tabs.first()
         var cameraOpen by rememberSaveable { mutableStateOf(initialDestination == KeepGWidgetProvider.DEST_CAMERA) }
         var showLaunch by rememberSaveable { mutableStateOf(true) }
-        var previewId by rememberSaveable { mutableStateOf<Long?>(null) }
-        val preview = previewId?.let { id -> photos.firstOrNull { it.mediaId == id } }
+        var previewSession by remember { mutableStateOf<PreviewSession?>(null) }
+        val photosById = remember(photos) { photos.associateBy { it.mediaId } }
+        val activePreviewSession = previewSession?.retainAvailable(photosById.keys)
+        val preview = activePreviewSession?.currentMediaId?.let(photosById::get)
         var unlockLock by remember { mutableStateOf<LockEntity?>(null) }
-        var pendingPreviewAfterUnlockId by rememberSaveable { mutableStateOf<Long?>(null) }
+        var pendingPreviewAfterUnlockSession by remember { mutableStateOf<PreviewSession?>(null) }
         var unlockPassword by remember { mutableStateOf("") }
         var lockTarget by remember { mutableStateOf<LockTargetV2?>(null) }
         var passwordTarget by remember { mutableStateOf<LockTargetV2?>(null) }
         var newPassword by remember { mutableStateOf("") }
-        var localMessage by remember { mutableStateOf<String?>(null) }
         var shareTarget by remember { mutableStateOf<List<PhotoEntity>?>(null) }
         var deleteTarget by remember { mutableStateOf<List<PhotoEntity>?>(null) }
         var batchCollection by remember { mutableStateOf(false) }
@@ -102,6 +118,7 @@ fun KeepGAppV2(
         var trashMedia by remember { mutableStateOf<List<PhotoEntity>>(emptyList()) }
         var pendingMediaActionLabel by remember { mutableStateOf("Media action") }
         val snackbar = remember { SnackbarHostState() }
+        val latestLanguage by rememberUpdatedState(settings.language)
 
         fun reloadTrash() {
             scope.launch { trashMedia = container.mediaStore.listTrashed() }
@@ -111,13 +128,13 @@ fun KeepGAppV2(
         val logExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(viewModel::exportDebugLog) }
         val mediaActionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
-                previewId = null
+                previewSession = null
                 viewModel.clearSelection()
                 viewModel.refresh()
                 reloadTrash()
-                localMessage = "$pendingMediaActionLabel complete"
+                viewModel.notifyUser(localizedFormat("%s complete", localized(pendingMediaActionLabel)))
             } else {
-                localMessage = "$pendingMediaActionLabel cancelled"
+                viewModel.notifyUser(localizedFormat("%s cancelled", localized(pendingMediaActionLabel)))
             }
         }
 
@@ -137,53 +154,57 @@ fun KeepGAppV2(
                 KeepGWidgetProvider.DEST_PHOTOS -> { cameraOpen = false; tabName = TabV2.PHOTOS.name }
             }
         }
-        LaunchedEffect(message, localMessage) {
-            (localMessage ?: message)?.let {
-                snackbar.showSnackbar(it)
-                localMessage = null
-                viewModel.clearMessage()
+        LaunchedEffect(viewModel, snackbar) {
+            viewModel.message.collect { raw ->
+                snackbar.showSnackbar(UiLocalizer.message(latestLanguage, raw))
             }
         }
+        LaunchedEffect(previewSession, activePreviewSession) {
+            if (previewSession != activePreviewSession) previewSession = activePreviewSession
+        }
 
-        fun unlock(lock: LockEntity, afterPreview: PhotoEntity? = null) {
+        fun unlock(lock: LockEntity, afterPreview: PreviewSession? = null) {
             if (lock.authType == "DEVICE") {
                 requestDeviceAuthentication(
-                    "Unlock protected media",
+                    localized("Unlock protected media"),
                     {
                         viewModel.unlockForSession(lock)
-                        afterPreview?.let { previewId = it.mediaId }
+                        afterPreview?.let { previewSession = it }
                     },
-                    { localMessage = it },
+                    viewModel::notifyUser,
                 )
             } else {
                 unlockLock = lock
-                pendingPreviewAfterUnlockId = afterPreview?.mediaId
+                pendingPreviewAfterUnlockSession = afterPreview
                 unlockPassword = ""
             }
         }
 
-        fun openMedia(media: PhotoEntity) {
+        fun requestPreview(session: PreviewSession) {
+            val retainedSession = session.retainAvailable(photosById.keys) ?: return
+            val media = photosById[retainedSession.currentMediaId] ?: return
             val lock = if (fullFeatures) findLock(media, locks) else null
-            if (lock == null || isUnlocked(lock, unlocked)) previewId = media.mediaId else unlock(lock, media)
+            if (lock == null || isUnlocked(lock, unlocked)) previewSession = retainedSession else unlock(lock, retainedSession)
+        }
+
+        fun openMedia(media: PhotoEntity, orderedMediaIds: List<Long>) {
+            createPreviewSession(media.mediaId, orderedMediaIds)?.let(::requestPreview)
         }
 
         fun navigatePreview(delta: Int) {
-            val current = preview ?: return
-            val index = visiblePhotos.indexOfFirst { it.mediaId == current.mediaId }
-            val target = visiblePhotos.getOrNull(index + delta) ?: return
-            openMedia(target)
+            activePreviewSession?.moveBy(delta)?.let(::requestPreview)
         }
 
         fun shareMedia(media: List<PhotoEntity>, password: String?) {
             if (media.isEmpty()) return
             viewModel.prepareShare(media, password) { chooser ->
-                runCatching { context.startActivity(chooser) }.onFailure { localMessage = "No compatible share target is available" }
+                runCatching { context.startActivity(chooser) }.onFailure { viewModel.notifyUser(localized("No compatible share target is available")) }
             }
         }
 
         fun launchMediaAction(label: String, sender: android.content.IntentSender?) {
             if (sender == null) {
-                localMessage = "$label is unavailable on this Android version"
+                viewModel.notifyUser("$label is unavailable on this Android version")
                 return
             }
             pendingMediaActionLabel = label
@@ -196,7 +217,7 @@ fun KeepGAppV2(
             if (sender != null) {
                 launchMediaAction(if (settings.deleteToTrash) "Move to trash" else "Delete", sender)
             } else {
-                previewId = null
+                previewSession = null
                 viewModel.removeLegacy(media)
                 reloadTrash()
             }
@@ -213,14 +234,12 @@ fun KeepGAppV2(
         }
 
         fun selectMedia(media: List<PhotoEntity>) {
-            viewModel.clearSelection()
-            media.distinctBy { it.mediaId }.forEach { viewModel.toggleSelection(it.mediaId) }
+            viewModel.selectMedia(media.map { it.mediaId })
             tabName = TabV2.PHOTOS.name
         }
 
         fun favoriteMedia(media: List<PhotoEntity>) {
-            val existing = favorites
-            media.distinctBy { it.mediaId }.forEach { if (it.mediaId !in existing) viewModel.toggleFavorite(it.mediaId) }
+            viewModel.favoriteMedia(media.map { it.mediaId })
         }
 
         fun vaultMedia(media: List<PhotoEntity>) {
@@ -229,7 +248,7 @@ fun KeepGAppV2(
                 val unique = media.distinctBy { it.mediaId }
                 var stored = 0
                 unique.forEach { item -> if (runCatching { container.vault.importEncrypted(item) }.isSuccess) stored++ }
-                localMessage = "Stored $stored/${unique.size} encrypted Vault copies"
+                viewModel.notifyUser(localizedFormat("Stored %s/%s encrypted Vault copies", stored, unique.size))
             }
         }
 
@@ -239,7 +258,7 @@ fun KeepGAppV2(
                 val images = media.distinctBy { it.mediaId }.filter { it.mimeType.startsWith("image/") }
                 var analyzed = 0
                 images.forEach { if (runCatching { container.faceAnalysis.analyze(it) }.isSuccess) analyzed++ }
-                localMessage = "Analyzed $analyzed/${images.size} selected images"
+                viewModel.notifyUser(localizedFormat("Analyzed %s/%s selected images", analyzed, images.size))
             }
         }
 
@@ -247,42 +266,25 @@ fun KeepGAppV2(
             val target = selectedPhotos.distinctBy { it.mediaId }
             if (target.isEmpty()) return
             requestDeviceAuthentication(
-                "Protect selected media",
+                localized("Protect selected media"),
                 {
-                    scope.launch(Dispatchers.IO) {
-                        target.forEach { media -> container.dao.upsertLock(LockEntity("PHOTO", media.mediaId.toString(), "DEVICE")) }
-                        localMessage = "Protected ${target.size} items"
-                    }
+                    viewModel.lockPhotosWithDevice(target.map { it.mediaId })
                     batchProtect = false
                 },
-                { localMessage = it },
+                viewModel::notifyUser,
             )
         }
 
         fun protectSelectedWithPassword(password: String) {
             val target = selectedPhotos.distinctBy { it.mediaId }
             if (target.isEmpty() || password.length < 6) return
-            scope.launch(Dispatchers.Default) {
-                val encoded = PasswordHasher.create(password.toCharArray())
-                target.forEach { media ->
-                    container.dao.upsertLock(
-                        LockEntity(
-                            targetType = "PHOTO",
-                            targetId = media.mediaId.toString(),
-                            authType = "PASSWORD",
-                            passwordHash = encoded.hash,
-                            passwordSalt = encoded.salt,
-                        )
-                    )
-                }
-                localMessage = "Protected ${target.size} items"
-            }
+            viewModel.lockPhotosWithPassword(target.map { it.mediaId }, password)
             batchProtect = false
             batchProtectPassword = ""
         }
 
         fun openExternal(url: String) {
-            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { localMessage = "No browser could open this link" }
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { viewModel.notifyUser(localized("No browser could open this link")) }
         }
 
         Box(Modifier.fillMaxSize()) {
@@ -291,8 +293,12 @@ fun KeepGAppV2(
                     onClose = { cameraOpen = false },
                     onCaptured = {
                         viewModel.refresh()
-                        localMessage = "Photo captured"
+                        viewModel.notifyUser(localized("Media captured"))
                     },
+                    initialGridEnabled = settings.cameraGridEnabled,
+                    recordAudioEnabled = settings.cameraAudioEnabled,
+                    onGridEnabledChange = viewModel::setCameraGridEnabled,
+                    onRecordAudioEnabledChange = viewModel::setCameraAudioEnabled,
                 )
             } else {
                 Scaffold(
@@ -309,7 +315,7 @@ fun KeepGAppV2(
                             },
                             actions = {
                                 if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                                IconButton({ cameraOpen = true }) { Icon(Icons.Default.PhotoCamera, "KeepG Camera") }
+                                IconButton({ cameraOpen = true }) { Icon(Icons.Default.PhotoCamera, tr("KeepG Camera")) }
                                 IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, tr("Refresh")) }
                             },
                         )
@@ -329,9 +335,22 @@ fun KeepGAppV2(
                     snackbarHost = { SnackbarHost(snackbar) },
                 ) { padding ->
                     Box(Modifier.padding(padding).fillMaxSize()) {
-                        when (tab) {
+                        AnimatedContent(
+                            targetState = tab,
+                            transitionSpec = {
+                                val enabled = settings.animationsEnabled
+                                val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                                (slideInHorizontally(tween(if (enabled) 180 else 0)) { if (enabled) direction * it / 8 else 0 } +
+                                    fadeIn(tween(if (enabled) 180 else 0))) togetherWith
+                                    (slideOutHorizontally(tween(if (enabled) 140 else 0)) { if (enabled) -direction * it / 8 else 0 } +
+                                        fadeOut(tween(if (enabled) 140 else 0)))
+                            },
+                            label = "main-tab",
+                        ) { activeTab ->
+                        when (activeTab) {
                             TabV2.PHOTOS -> LibraryScreenV2(
                                 photos = visiblePhotos,
+                                availablePhotos = albumPhotos,
                                 locks = locks,
                                 unlocked = unlocked,
                                 favorites = favorites,
@@ -341,10 +360,19 @@ fun KeepGAppV2(
                                 typeFilter = typeFilter,
                                 sizeFilter = sizeFilter,
                                 extensionFilter = extensionFilter,
+                                includeImageText = includeImageText,
+                                searchBucketId = searchBucketId,
+                                textIndexing = textIndexing,
+                                textIndexProgress = textIndexProgress,
+                                indexedImageCount = mediaTextIndexCount,
                                 onQuery = viewModel::setSearchQuery,
                                 onTypeFilter = viewModel::setTypeFilter,
                                 onSizeFilter = viewModel::setSizeFilter,
                                 onExtensionFilter = viewModel::setExtensionFilter,
+                                onIncludeImageText = viewModel::setImageTextSearchEnabled,
+                                onSearchBucketId = viewModel::setSearchBucketId,
+                                onIndexImageText = viewModel::indexImageText,
+                                onClearImageTextIndex = viewModel::clearImageTextIndex,
                                 onSort = viewModel::setSortMode,
                                 onSortDescending = viewModel::setSortDescending,
                                 onGridColumns = viewModel::setGridColumns,
@@ -362,7 +390,7 @@ fun KeepGAppV2(
                                 fullFeatures = fullFeatures,
                             )
                             TabV2.ALBUMS -> AlbumsScreenV2(
-                                photos = visiblePhotos,
+                                photos = albumPhotos,
                                 trash = trashMedia,
                                 locks = locks,
                                 unlocked = unlocked,
@@ -375,6 +403,10 @@ fun KeepGAppV2(
                                 onToggleSelection = viewModel::toggleSelection,
                                 onGridColumns = viewModel::setGridColumns,
                                 onCreateCollection = viewModel::createCollection,
+                                onRenameCollection = viewModel::renameCollection,
+                                onClearCollection = viewModel::clearCollection,
+                                onDeleteCollection = viewModel::deleteCollection,
+                                onRemoveFromCollection = viewModel::removeFromCollection,
                                 onLockAlbum = { id, name -> lockTarget = LockTargetV2("ALBUM", id.toString(), name) },
                                 onUnlock = { unlock(it) },
                                 onSelectMedia = ::selectMedia,
@@ -398,6 +430,14 @@ fun KeepGAppV2(
                                 hasDeletionPassword = viewModel.hasDeletionPassword(),
                                 onVideoPreviewAutoPlay = viewModel::setVideoPreviewAutoPlay,
                                 onPreviewSwipeNavigation = container.preferences::setPreviewSwipeNavigation,
+                                onGridColumns = viewModel::setGridColumns,
+                                onGridLayoutMode = viewModel::setGridLayoutMode,
+                                onThumbnailScaleMode = viewModel::setThumbnailScaleMode,
+                                onPreviewScaleMode = viewModel::setPreviewScaleMode,
+                                onShowMediaBadges = viewModel::setShowMediaBadges,
+                                onAnimationsEnabled = viewModel::setAnimationsEnabled,
+                                onCameraGridEnabled = viewModel::setCameraGridEnabled,
+                                onCameraAudioEnabled = viewModel::setCameraAudioEnabled,
                                 onDeleteToTrash = viewModel::setDeleteToTrash,
                                 onHideSensitiveContent = viewModel::setHideSensitiveContent,
                                 onLanguage = viewModel::setLanguage,
@@ -409,6 +449,7 @@ fun KeepGAppV2(
                                 onShowLog = viewModel::debugSnapshot,
                             )
                         }
+                        }
                     }
                 }
             }
@@ -416,36 +457,38 @@ fun KeepGAppV2(
             if (showLaunch) KeepGLaunchAnimation(Modifier.fillMaxSize())
         }
 
-        preview?.let { media ->
-            val currentIndex = visiblePhotos.indexOfFirst { it.mediaId == media.mediaId }
+        if (preview != null && activePreviewSession != null) {
+            val previousSession = activePreviewSession.moveBy(-1)
+            val nextSession = activePreviewSession.moveBy(1)
             MediaPreviewDialogV2(
-                photo = media,
-                lock = findLock(media, locks),
+                photo = preview,
+                lock = findLock(preview, locks),
                 collections = collections,
-                isFavorite = media.mediaId in favorites,
+                isFavorite = preview.mediaId in favorites,
                 fullFeatures = fullFeatures,
                 swipeNavigationEnabled = settings.previewSwipeNavigation,
-                canNavigatePrevious = currentIndex > 0,
-                canNavigateNext = currentIndex >= 0 && currentIndex < visiblePhotos.lastIndex,
+                previewScaleMode = settings.previewScaleMode,
+                canNavigatePrevious = previousSession != null,
+                canNavigateNext = nextSession != null,
                 onPrevious = { navigatePreview(-1) },
                 onNext = { navigatePreview(1) },
-                onDismiss = { previewId = null },
-                onFavorite = { viewModel.toggleFavorite(media.mediaId) },
-                onShare = { password -> shareMedia(listOf(media), password) },
-                onDelete = { removeMedia(listOf(media)) },
+                onDismiss = { previewSession = null },
+                onFavorite = { viewModel.toggleFavorite(preview.mediaId) },
+                onShare = { password -> shareMedia(listOf(preview), password) },
+                onDelete = { removeMedia(listOf(preview)) },
                 hasDeletionPassword = viewModel.hasDeletionPassword(),
                 verifyDeletionPassword = viewModel::verifyDeletionPassword,
                 setDeletionPassword = viewModel::setDeletionPassword,
-                onLock = { lockTarget = LockTargetV2("PHOTO", media.mediaId.toString(), media.displayName, media) },
+                onLock = { lockTarget = LockTargetV2("PHOTO", preview.mediaId.toString(), preview.displayName, preview) },
                 onRemoveLock = viewModel::removeLock,
-                onVault = { viewModel.importToVault(media) },
-                onAnalyze = { viewModel.analyze(media) },
-                onCollection = { viewModel.addToCollection(it, media.mediaId) },
-                onEdit = { operation, strength -> viewModel.editMedia(media, operation, strength) },
-                onAdvancedEdit = { request -> viewModel.editAdvanced(media, request) },
-                onDetectLinks = { x, y -> viewModel.detectLinks(media, x, y) },
-                onRepair = { useCurrentTime -> viewModel.repairMedia(media, useCurrentTime) },
-                onRename = { newName -> viewModel.renameMedia(media, newName) },
+                onVault = { viewModel.importToVault(preview) },
+                onAnalyze = { viewModel.analyze(preview) },
+                onCollection = { viewModel.addToCollection(it, preview.mediaId) },
+                onEdit = { operation, strength -> viewModel.editMedia(preview, operation, strength) },
+                onAdvancedEdit = { request -> viewModel.editAdvanced(preview, request) },
+                onDetectLinks = { x, y -> viewModel.detectLinks(preview, x, y) },
+                onRepair = { useCurrentTime -> viewModel.repairMedia(preview, useCurrentTime) },
+                onRename = { newName -> viewModel.renameMedia(preview, newName) },
                 onRefresh = viewModel::refresh,
             )
         }
@@ -477,8 +520,8 @@ fun KeepGAppV2(
                         collections.forEach { collection ->
                             TextButton(
                                 onClick = {
-                                    selectedPhotos.distinctBy { it.mediaId }.forEach { viewModel.addToCollection(collection.id, it.mediaId) }
-                                    localMessage = "Added ${selectedPhotos.size} items to ${collection.name}"
+                                    viewModel.addMediaToCollection(collection.id, selectedPhotos.map { it.mediaId })
+                                    viewModel.notifyUser(localizedFormat("Added %s items to %s", selectedPhotos.size, collection.name))
                                     batchCollection = false
                                 },
                                 modifier = Modifier.fillMaxWidth(),
@@ -493,18 +536,18 @@ fun KeepGAppV2(
         if (batchProtect) {
             AlertDialog(
                 onDismissRequest = { batchProtect = false },
-                title = { Text("Protect ${selectedPhotos.size} selected items") },
+                title = { Text(trf("Protect %s selected items", selectedPhotos.size)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         FilledTonalButton(::protectSelectedWithDevice, Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential")
+                            Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text(tr("Device credential"))
                         }
                         OutlinedTextField(batchProtectPassword, { batchProtectPassword = it }, Modifier.fillMaxWidth(), label = { Text(tr("Password")) }, singleLine = true)
                         OutlinedButton(
                             enabled = batchProtectPassword.length >= 6,
                             onClick = { protectSelectedWithPassword(batchProtectPassword) },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password") }
+                        ) { Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text(tr("KeepG password")) }
                     }
                 },
                 confirmButton = {},
@@ -518,7 +561,7 @@ fun KeepGAppV2(
                 title = { Text(tr("Links found")) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("KeepG detected these HTTP(S) links. Opening a link leaves KeepG and uses your external browser.")
+                        Text(tr("KeepG detected these HTTP(S) links. Opening a link leaves KeepG and uses your external browser."))
                         detectedLinks.forEach { link ->
                             OutlinedButton({ openExternal(link.value) }, Modifier.fillMaxWidth()) {
                                 Icon(Icons.Default.OpenInBrowser, null)
@@ -534,45 +577,45 @@ fun KeepGAppV2(
 
         unlockLock?.let { lock ->
             PasswordDialog(
-                "Unlock protected media",
+                tr("Unlock protected media"),
                 unlockPassword,
                 { unlockPassword = it },
                 tr("Unlock"),
                 {
                     if (viewModel.verifyPassword(lock, unlockPassword)) {
                         viewModel.unlockForSession(lock)
-                        pendingPreviewAfterUnlockId?.let { previewId = it }
-                        pendingPreviewAfterUnlockId = null
+                        pendingPreviewAfterUnlockSession?.let { previewSession = it }
+                        pendingPreviewAfterUnlockSession = null
                         unlockLock = null
                         unlockPassword = ""
-                    } else localMessage = incorrectPasswordMessage
+                    } else viewModel.notifyUser(incorrectPasswordMessage)
                 },
-                { unlockLock = null; pendingPreviewAfterUnlockId = null },
+                { unlockLock = null; pendingPreviewAfterUnlockSession = null },
             )
         }
 
         lockTarget?.let { target ->
             AlertDialog(
                 onDismissRequest = { lockTarget = null },
-                title = { Text("Protect ${target.label}") },
+                title = { Text(trf("Protect %s", target.label)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Choose a KeepG unlock method.")
+                        Text(tr("Choose a KeepG unlock method."))
                         FilledTonalButton(
                             {
                                 requestDeviceAuthentication(
-                                    "Confirm device lock",
+                                    localized("Confirm device lock"),
                                     {
                                         if (target.type == "PHOTO") viewModel.lockPhotoWithDevice(requireNotNull(target.photo)) else viewModel.lockAlbumWithDevice(target.id.toLong())
                                         lockTarget = null
                                     },
-                                    { localMessage = it },
+                                    viewModel::notifyUser,
                                 )
                             },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text("Device credential") }
+                        ) { Icon(Icons.Default.Fingerprint, null); Spacer(Modifier.width(8.dp)); Text(tr("Device credential")) }
                         OutlinedButton({ passwordTarget = target; newPassword = ""; lockTarget = null }, Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text("KeepG password")
+                            Icon(Icons.Default.Password, null); Spacer(Modifier.width(8.dp)); Text(tr("KeepG password"))
                         }
                     }
                 },
@@ -583,12 +626,12 @@ fun KeepGAppV2(
 
         passwordTarget?.let { target ->
             PasswordDialog(
-                "Set password for ${target.label}",
+                trf("Set password for %s", target.label),
                 newPassword,
                 { newPassword = it },
                 tr("Protect"),
                 {
-                    if (newPassword.length < 6) localMessage = minimumPasswordMessage
+                    if (newPassword.length < 6) viewModel.notifyUser(minimumPasswordMessage)
                     else {
                         if (target.type == "PHOTO") viewModel.lockPhotoWithPassword(requireNotNull(target.photo), newPassword) else viewModel.lockAlbumWithPassword(target.id.toLong(), newPassword)
                         passwordTarget = null

@@ -22,6 +22,13 @@ data class PhotoEntity(
     val lastScannedAt: Long = System.currentTimeMillis(),
 )
 
+@Entity(tableName = "media_text_index", indices = [Index("indexedAt")])
+data class MediaTextIndexEntity(
+    @PrimaryKey val mediaId: Long,
+    val text: String,
+    val indexedAt: Long = System.currentTimeMillis(),
+)
+
 @Entity(tableName = "locks", primaryKeys = ["targetType", "targetId"])
 data class LockEntity(
     val targetType: String,

@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [PhotoEntity::class, LockEntity::class, FaceObservationEntity::class, PersonProfileEntity::class, SmartRuleEntity::class, VaultItemEntity::class, CollectionEntity::class, CollectionItemEntity::class],
-    version = 2,
+    entities = [PhotoEntity::class, MediaTextIndexEntity::class, LockEntity::class, FaceObservationEntity::class, PersonProfileEntity::class, SmartRuleEntity::class, VaultItemEntity::class, CollectionEntity::class, CollectionItemEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class KeepGDatabase : RoomDatabase() {
@@ -24,10 +24,17 @@ abstract class KeepGDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS media_text_index (mediaId INTEGER NOT NULL, text TEXT NOT NULL, indexedAt INTEGER NOT NULL, PRIMARY KEY(mediaId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_media_text_index_indexedAt ON media_text_index(indexedAt)")
+            }
+        }
+
         fun create(context: Context): KeepGDatabase = Room.databaseBuilder(
             context.applicationContext,
             KeepGDatabase::class.java,
             "keepg.db",
-        ).addMigrations(MIGRATION_1_2).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }

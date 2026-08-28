@@ -28,6 +28,7 @@ internal fun FittedVideoTextureSurfaceV2(
     fallbackWidth: Int,
     fallbackHeight: Int,
     modifier: Modifier = Modifier,
+    fillContainer: Boolean = false,
 ) {
     var videoAspect by remember(player, fallbackWidth, fallbackHeight) {
         mutableFloatStateOf(safeMediaAspectRatio(fallbackWidth, fallbackHeight))
@@ -51,7 +52,7 @@ internal fun FittedVideoTextureSurfaceV2(
 
     BoxWithConstraints(modifier = modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         val containerAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 1f
-        val fittedModifier = if (videoAspect >= containerAspect) {
+        val fittedModifier = if ((videoAspect >= containerAspect) xor fillContainer) {
             Modifier.fillMaxWidth().aspectRatio(videoAspect)
         } else {
             Modifier.fillMaxHeight().aspectRatio(videoAspect)

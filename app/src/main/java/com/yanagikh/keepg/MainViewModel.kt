@@ -12,13 +12,35 @@ import com.yanagikh.keepg.advanced.MediaEditOperation
 import com.yanagikh.keepg.data.*
 import com.yanagikh.keepg.security.PasswordHasher
 import com.yanagikh.keepg.smart.SmartRuleEvaluator
+import com.yanagikh.keepg.ui.UiLocalizer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
+
+data class TextIndexProgress(
+    val processed: Int,
+    val total: Int,
+    val failures: Int = 0,
+)
+
+private data class MediaFilterState(
+    val query: String,
+    val type: MediaTypeFilter,
+    val size: MediaSizeFilter,
+    val extension: String,
+    val includeImageText: Boolean,
+    val bucketId: Long?,
+)
 
 class MainViewModel(private val container: AppContainer) : ViewModel() {
     val photos = container.dao.observePhotos().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -29,6 +51,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     val vault = container.dao.observeVault().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val collections = container.dao.observeCollections().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val collectionItems = container.dao.observeCollectionItems().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val mediaTextIndexCount = container.dao.observeMediaTextIndexCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val settings = container.preferences.settings
     val favorites = container.preferences.favorites
     val sensitiveIds = container.preferences.sensitiveIds
@@ -36,8 +59,9 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
-    private val _message = MutableStateFlow<String?>(null)
-    val message = _message.asStateFlow()
+    private val activeTaskCount = AtomicInteger(0)
+    private val messageChannel = Channel<String>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val message = messageChannel.receiveAsFlow()
     private val _sessionUnlocked = MutableStateFlow<Set<String>>(emptySet())
     val sessionUnlocked = _sessionUnlocked.asStateFlow()
     private val _detectedLinks = MutableStateFlow<List<DetectedExternalLink>>(emptyList())
@@ -53,21 +77,54 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     val sizeFilter = _sizeFilter.asStateFlow()
     private val _extensionFilter = MutableStateFlow("")
     val extensionFilter = _extensionFilter.asStateFlow()
+    private val _includeImageText = MutableStateFlow(false)
+    val includeImageText = _includeImageText.asStateFlow()
+    private val _searchBucketId = MutableStateFlow<Long?>(null)
+    val searchBucketId = _searchBucketId.asStateFlow()
+    private val _textIndexing = MutableStateFlow(false)
+    val textIndexing = _textIndexing.asStateFlow()
+    private val _textIndexProgress = MutableStateFlow<TextIndexProgress?>(null)
+    val textIndexProgress = _textIndexProgress.asStateFlow()
     private val _selectedMediaIds = MutableStateFlow<Set<Long>>(emptySet())
     val selectedMediaIds = _selectedMediaIds.asStateFlow()
     private val classifiedThisSession = mutableSetOf<Long>()
 
-    private val baseVisiblePhotos = combine(photos, settings, sensitiveIds, _searchQuery, _typeFilter) { all, pref, sensitive, query, type ->
-        all.filter { media ->
-            (!pref.hideSensitiveContent || media.mediaId !in sensitive) &&
-                matchesType(media, type) &&
-                fuzzyMatches(media, query)
-        }.let { sortMedia(it, pref) }
+    private val filterState = combine(
+        combine(_searchQuery, _typeFilter, _sizeFilter, _extensionFilter) { query, type, size, extension ->
+            MediaFilterState(query, type, size, extension, includeImageText = false, bucketId = null)
+        },
+        _includeImageText,
+        _searchBucketId,
+    ) { filters, includeImageText, bucketId ->
+        filters.copy(includeImageText = includeImageText, bucketId = bucketId)
     }
 
-    val visiblePhotos = combine(baseVisiblePhotos, _sizeFilter, _extensionFilter) { all, size, extension ->
-        all.filter { media -> matchesSize(media, size) && matchesExtension(media, extension) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val imageTextMatches = filterState.mapLatest { filters ->
+        val query = filters.query.trim()
+        if (!fullFeatures || !filters.includeImageText || query.isEmpty()) {
+            emptySet()
+        } else {
+            withContext(Dispatchers.IO) { container.dao.searchMediaText(query, filters.bucketId).toSet() }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val albumPhotos = combine(photos, settings, sensitiveIds) { all, pref, sensitive ->
+        all.filter { !pref.hideSensitiveContent || it.mediaId !in sensitive }.let { sortMedia(it, pref) }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val visiblePhotos = combine(photos, settings, sensitiveIds, imageTextMatches, filterState) { all, pref, sensitive, textMatches, filters ->
+        all.filter { media ->
+            (!pref.hideSensitiveContent || media.mediaId !in sensitive) &&
+                (filters.bucketId == null || media.bucketId == filters.bucketId) &&
+                matchesType(media, filters.type) &&
+                matchesSize(media, filters.size) &&
+                matchesExtension(media, filters.extension) &&
+                (
+                    matchesMediaSearch(media, filters.query, indexedText = null, includeImageText = false) ||
+                        (filters.includeImageText && media.mediaId in textMatches)
+                )
+        }.let { sortMedia(it, pref) }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val selectedPhotos = combine(photos, _selectedMediaIds) { all, ids -> all.filter { it.mediaId in ids } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -87,9 +144,18 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     fun setTypeFilter(value: MediaTypeFilter) { _typeFilter.value = value }
     fun setSizeFilter(value: MediaSizeFilter) { _sizeFilter.value = value }
     fun setExtensionFilter(value: String) { _extensionFilter.value = value.trim().removePrefix(".").take(12) }
+    fun setImageTextSearchEnabled(value: Boolean) { _includeImageText.value = value && fullFeatures }
+    fun setSearchBucketId(value: Long?) { _searchBucketId.value = value }
     fun setSortMode(value: MediaSortMode) = container.preferences.setSort(value)
     fun setSortDescending(value: Boolean) = container.preferences.setSortDescending(value)
     fun setGridColumns(value: Int) = container.preferences.setGridColumns(value)
+    fun setGridLayoutMode(value: GridLayoutMode) = container.preferences.setGridLayoutMode(value)
+    fun setThumbnailScaleMode(value: ThumbnailScaleMode) = container.preferences.setThumbnailScaleMode(value)
+    fun setPreviewScaleMode(value: PreviewScaleMode) = container.preferences.setPreviewScaleMode(value)
+    fun setShowMediaBadges(value: Boolean) = container.preferences.setShowMediaBadges(value)
+    fun setAnimationsEnabled(value: Boolean) = container.preferences.setAnimationsEnabled(value)
+    fun setCameraGridEnabled(value: Boolean) = container.preferences.setCameraGridEnabled(value)
+    fun setCameraAudioEnabled(value: Boolean) = container.preferences.setCameraAudioEnabled(value)
     fun setVideoPreviewAutoPlay(value: Boolean) = container.preferences.setVideoPreviewAutoPlay(value)
     fun setDeleteToTrash(value: Boolean) = container.preferences.setDeleteToTrash(value)
     fun setLanguage(value: AppLanguage) = container.preferences.setLanguage(value)
@@ -98,33 +164,120 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         if (value) viewModelScope.launch { classifySensitive(photos.value) }
     }
 
+    fun indexImageText(force: Boolean = false) {
+        if (!fullFeatures) {
+            postMessage("Image text search is available in KeepG Full")
+            return
+        }
+        if (!_textIndexing.compareAndSet(expect = false, update = true)) return
+        viewModelScope.launch {
+            var failures = 0
+            try {
+                val bucketId = _searchBucketId.value
+                val existingIds = if (force) emptySet() else container.dao.getIndexedMediaIds().toSet()
+                val lockedPhotoIds = locks.value.asSequence().filter { it.targetType == "PHOTO" }.mapNotNull { it.targetId.toLongOrNull() }.toSet()
+                val lockedAlbumIds = locks.value.asSequence().filter { it.targetType == "ALBUM" }.mapNotNull { it.targetId.toLongOrNull() }.toSet()
+                val targets = photos.value.asSequence()
+                    .filter { it.mimeType.startsWith("image/") }
+                    .filter { bucketId == null || it.bucketId == bucketId }
+                    .filter { it.mediaId !in lockedPhotoIds && it.bucketId !in lockedAlbumIds }
+                    .filter { it.mediaId !in existingIds }
+                    .toList()
+                _textIndexProgress.value = TextIndexProgress(0, targets.size)
+                targets.forEachIndexed { index, media ->
+                    try {
+                        val text = container.advanced.recognizeText(media)
+                        container.dao.upsertMediaTextIndex(MediaTextIndexEntity(media.mediaId, text))
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        failures++
+                        container.log.warn("OCR", "Unable to index ${media.displayName}", error)
+                    }
+                    _textIndexProgress.value = TextIndexProgress(index + 1, targets.size, failures)
+                }
+                postMessage(if (targets.isEmpty()) "Image text index is already up to date" else "Indexed ${targets.size - failures}/${targets.size} images")
+            } finally {
+                _textIndexing.value = false
+            }
+        }
+    }
+
+    fun clearImageTextIndex() {
+        viewModelScope.launch {
+            container.dao.clearMediaTextIndex()
+            _textIndexProgress.value = null
+            postMessage("Image text index cleared")
+        }
+    }
+
     fun toggleFavorite(mediaId: Long) = container.preferences.toggleFavorite(mediaId)
     fun favoriteSelected() {
-        val current = favorites.value
-        _selectedMediaIds.value.forEach { if (it !in current) container.preferences.toggleFavorite(it) }
+        container.preferences.addFavorites(_selectedMediaIds.value)
     }
+    fun favoriteMedia(mediaIds: Collection<Long>) = container.preferences.addFavorites(mediaIds)
 
     fun toggleSelection(mediaId: Long) {
         _selectedMediaIds.update { selected -> selected.toMutableSet().apply { if (!add(mediaId)) remove(mediaId) } }
     }
     fun clearSelection() { _selectedMediaIds.value = emptySet() }
     fun selectOnly(mediaId: Long) { _selectedMediaIds.value = setOf(mediaId) }
+    fun selectMedia(mediaIds: Collection<Long>) { _selectedMediaIds.value = mediaIds.toSet() }
 
     fun lockPhotoWithDevice(photo: PhotoEntity) = lock("PHOTO", photo.mediaId.toString(), "DEVICE", null)
     fun lockAlbumWithDevice(bucketId: Long) = lock("ALBUM", bucketId.toString(), "DEVICE", null)
     fun lockPhotoWithPassword(photo: PhotoEntity, password: String) = lock("PHOTO", photo.mediaId.toString(), "PASSWORD", password)
     fun lockAlbumWithPassword(bucketId: Long, password: String) = lock("ALBUM", bucketId.toString(), "PASSWORD", password)
 
+    fun lockPhotosWithDevice(mediaIds: Collection<Long>) = lockPhotos(mediaIds, "DEVICE", null)
+    fun lockPhotosWithPassword(mediaIds: Collection<Long>, password: String) = lockPhotos(mediaIds, "PASSWORD", password)
+
+    private fun lockPhotos(mediaIds: Collection<Long>, authType: String, password: String?) {
+        val uniqueIds = mediaIds.distinct()
+        if (uniqueIds.isEmpty() || (authType == "PASSWORD" && password.orEmpty().length < 6)) return
+        viewModelScope.launch(Dispatchers.Default) {
+            beginBusy()
+            try {
+                val encoded = password?.let { PasswordHasher.create(it.toCharArray()) }
+                uniqueIds.forEach { mediaId ->
+                    coroutineContext.ensureActive()
+                    container.dao.upsertLock(
+                        LockEntity(
+                            targetType = "PHOTO",
+                            targetId = mediaId.toString(),
+                            authType = authType,
+                            passwordHash = encoded?.hash,
+                            passwordSalt = encoded?.salt,
+                        )
+                    )
+                    container.dao.deleteMediaTextIndex(mediaId)
+                }
+                _sessionUnlocked.update { unlocked -> unlocked - uniqueIds.map { "PHOTO:$it" }.toSet() }
+                postMessage("Protected ${uniqueIds.size} items")
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                container.log.error("Security", "Unable to protect selected media", error)
+                postMessage("Unable to protect selected media")
+            } finally {
+                endBusy()
+            }
+        }
+    }
+
     private fun lock(targetType: String, targetId: String, authType: String, password: String?) {
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
                 val encoded = password?.let { PasswordHasher.create(it.toCharArray()) }
                 container.dao.upsertLock(LockEntity(targetType = targetType, targetId = targetId, authType = authType, passwordHash = encoded?.hash, passwordSalt = encoded?.salt))
+                if (targetType == "PHOTO") targetId.toLongOrNull()?.let { container.dao.deleteMediaTextIndex(it) }
+                if (targetType == "ALBUM") targetId.toLongOrNull()?.let { container.dao.deleteAlbumTextIndex(it) }
                 _sessionUnlocked.update { it - "$targetType:$targetId" }
                 container.log.info("Security", "Protected $targetType:$targetId with $authType")
             }.onFailure {
+                if (it is CancellationException) throw it
                 container.log.error("Security", "Unable to create lock", it)
-                _message.value = it.message ?: "Unable to create lock"
+                postMessage("Unable to create lock")
             }
         }
     }
@@ -146,7 +299,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun analyze(photo: PhotoEntity) {
         if (!fullFeatures || !photo.mimeType.startsWith("image/")) {
-            _message.value = "Face analysis is available for images in KeepG Full"
+            postMessage("Face analysis is available for images in KeepG Full")
             return
         }
         launchTask("Analysis complete") { container.faceAnalysis.analyze(photo) }
@@ -154,27 +307,34 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun analyzeLibrary() {
         if (!fullFeatures) {
-            _message.value = "Smart analysis is available in KeepG Full"
+            postMessage("Smart analysis is available in KeepG Full")
             return
         }
         viewModelScope.launch {
-            _busy.value = true
+            beginBusy()
             try {
                 var facesFound = 0
                 val snapshot = photos.value.filter { it.mimeType.startsWith("image/") }
                 snapshot.forEachIndexed { index, photo ->
-                    _message.value = "Analyzing ${index + 1}/${snapshot.size}: ${photo.displayName}"
-                    facesFound += runCatching { container.faceAnalysis.analyze(photo) }.getOrDefault(0)
+                    coroutineContext.ensureActive()
+                    facesFound += try {
+                        container.faceAnalysis.analyze(photo)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Throwable) {
+                        container.log.error("Smart", "Unable to analyze ${photo.displayName}", error)
+                        0
+                    }
                 }
-                _message.value = "Smart analysis complete: $facesFound faces processed"
-            } finally { _busy.value = false }
+                postMessage("Smart analysis complete: $facesFound faces processed")
+            } finally { endBusy() }
         }
     }
 
-    fun detectLinks(photo: PhotoEntity, normalizedX: Float? = null, normalizedY: Float? = null) = launchTask("Link scan complete") {
+    fun detectLinks(photo: PhotoEntity, normalizedX: Float? = null, normalizedY: Float? = null) = launchTask(null) {
         val links = container.advanced.detectExternalLinks(photo, normalizedX, normalizedY)
         _detectedLinks.value = links
-        if (links.isEmpty()) _message.value = "No web links or QR URLs found"
+        postMessage(if (links.isEmpty()) "No web links or QR URLs found" else "Link scan complete")
     }
 
     fun clearDetectedLinks() { _detectedLinks.value = emptyList() }
@@ -191,34 +351,34 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         container.mediaStore.refresh()
     }
 
-    fun repairMedia(photo: PhotoEntity, useCurrentTime: Boolean = false) = launchTask("Repair finished") {
+    fun repairMedia(photo: PhotoEntity, useCurrentTime: Boolean = false) = launchTask(null) {
         val report = container.advanced.repair(photo, if (useCurrentTime) System.currentTimeMillis() else null)
         container.log.info("Repair", "${photo.displayName}: ${report.summary}")
         container.mediaStore.refresh()
-        _message.value = report.summary
+        postMessage(report.summary)
     }
 
     fun prepareShare(media: List<PhotoEntity>, password: String?, onReady: (Intent) -> Unit) {
         viewModelScope.launch {
-            _busy.value = true
+            beginBusy()
             try {
                 val intent = withContext(Dispatchers.IO) { container.mediaActions.prepareShare(media, password) }
-                onReady(Intent.createChooser(intent, "Share media"))
+                onReady(Intent.createChooser(intent, UiLocalizer.text(settings.value.language, "Share media")))
             } catch (t: Throwable) {
                 container.log.error("Share", "Unable to prepare share", t)
-                _message.value = t.message ?: "Unable to share media"
-            } finally { _busy.value = false }
+                postMessage("Unable to share media")
+            } finally { endBusy() }
         }
     }
 
     fun createRemovalIntentSender(media: List<PhotoEntity>): IntentSender? =
         container.mediaActions.createRemovalIntentSender(media, settings.value.deleteToTrash)
 
-    fun removeLegacy(media: List<PhotoEntity>) = launchTask("Media removed") {
+    fun removeLegacy(media: List<PhotoEntity>) = launchTask(null) {
         val removed = container.mediaActions.removeLegacy(media)
         container.mediaStore.refresh()
         clearSelection()
-        _message.value = "Removed $removed item(s)"
+        postMessage("Removed $removed item(s)")
     }
 
     fun renameMedia(photo: PhotoEntity, name: String) = launchTask("Media renamed") {
@@ -228,8 +388,11 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun hasDeletionPassword(): Boolean = container.preferences.hasDeletionPassword()
     fun setDeletionPassword(password: String) = runCatching { container.preferences.setDeletionPassword(password) }
-        .onSuccess { _message.value = "Deletion password updated" }
-        .onFailure { _message.value = it.message }
+        .onSuccess { postMessage("Deletion password updated") }
+        .onFailure {
+            container.log.error("Security", "Unable to update deletion password", it)
+            postMessage("Operation failed")
+        }
         .isSuccess
     fun verifyDeletionPassword(password: String): Boolean = container.preferences.verifyDeletionPassword(password)
 
@@ -239,7 +402,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun exportDebugLog(destination: Uri) = launchTask("Debug log exported") { container.log.exportTo(destination) }
-    fun clearDebugLog() { container.log.clear(); _message.value = "Debug log cleared" }
+    fun clearDebugLog() { container.log.clear(); postMessage("Debug log cleared") }
     fun debugSnapshot(): String = container.log.snapshot()
 
     fun namePerson(clusterId: Long, name: String) {
@@ -260,7 +423,10 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                 val startMs = LocalDate.parse(start).atStartOfDay(zone).toInstant().toEpochMilli()
                 val endMs = LocalDate.parse(end).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
                 container.dao.upsertRule(SmartRuleEntity(name = name.ifBlank { "$start – $end" }, kind = "TIME", startTime = startMs, endTime = endMs))
-            }.onFailure { _message.value = "Dates must use YYYY-MM-DD" }
+            }.onFailure {
+                if (it is CancellationException) throw it
+                postMessage("Dates must use YYYY-MM-DD")
+            }
         }
     }
 
@@ -277,13 +443,37 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     fun removeVaultItem(item: VaultItemEntity) = launchTask("Vault item removed") { container.vault.remove(item) }
     fun createCollection(name: String) { if (name.isNotBlank()) viewModelScope.launch { container.dao.insertCollection(CollectionEntity(name = name.trim())) } }
     fun addToCollection(collectionId: Long, mediaId: Long) { viewModelScope.launch { container.dao.addCollectionItem(CollectionItemEntity(collectionId, mediaId)) } }
-    fun clearMessage() { _message.value = null }
-
+    fun addMediaToCollection(collectionId: Long, mediaIds: Collection<Long>) {
+        val uniqueIds = mediaIds.distinct()
+        if (uniqueIds.isEmpty()) return
+        viewModelScope.launch {
+            uniqueIds.forEach { mediaId ->
+                coroutineContext.ensureActive()
+                container.dao.addCollectionItem(CollectionItemEntity(collectionId, mediaId))
+            }
+            postMessage("Added ${uniqueIds.size} items to collection")
+        }
+    }
+    fun removeFromCollection(collectionId: Long, mediaId: Long) { viewModelScope.launch { container.dao.removeCollectionItem(collectionId, mediaId) } }
+    fun clearCollection(collectionId: Long) { viewModelScope.launch { container.dao.clearCollectionItems(collectionId) } }
+    fun renameCollection(collectionId: Long, name: String) {
+        if (name.isNotBlank()) viewModelScope.launch { container.dao.renameCollection(collectionId, name.trim()) }
+    }
+    fun deleteCollection(collectionId: Long) { viewModelScope.launch { container.dao.deleteCollection(collectionId) } }
+    fun notifyUser(message: String) { postMessage(message) }
     private suspend fun classifySensitive(media: List<PhotoEntity>) {
         media.forEach { item ->
             if (item.mediaId in classifiedThisSession) return@forEach
             classifiedThisSession += item.mediaId
-            val sensitive = runCatching { container.sensitiveContent.isLikelySensitive(item) }.getOrDefault(false)
+            coroutineContext.ensureActive()
+            val sensitive = try {
+                container.sensitiveContent.isLikelySensitive(item)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                container.log.error("SensitiveContent", "Unable to classify ${item.displayName}", error)
+                false
+            }
             container.preferences.setSensitive(item.mediaId, sensitive)
         }
     }
@@ -307,38 +497,6 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         return media.displayName.substringAfterLast('.', "").equals(extension, ignoreCase = true)
     }
 
-    private fun fuzzyMatches(media: PhotoEntity, query: String): Boolean {
-        val q = query.trim().lowercase(Locale.ROOT)
-        if (q.isBlank()) return true
-        val fields = listOf(
-            media.displayName,
-            media.bucketName,
-            media.mimeType,
-            media.displayName.substringAfterLast('.', ""),
-            "${media.width}x${media.height}",
-            media.sizeBytes.toString(),
-        )
-        return fields.any { fuzzyScore(it.lowercase(Locale.ROOT), q) > 0 }
-    }
-
-    private fun fuzzyScore(text: String, query: String): Int {
-        if (text == query) return 1000
-        if (text.startsWith(query)) return 800 - (text.length - query.length).coerceAtMost(200)
-        val direct = text.indexOf(query)
-        if (direct >= 0) return 600 - direct.coerceAtMost(200)
-        var qi = 0
-        var gap = 0
-        var last = -1
-        text.forEachIndexed { index, c ->
-            if (qi < query.length && c == query[qi]) {
-                if (last >= 0) gap += index - last - 1
-                last = index
-                qi++
-            }
-        }
-        return if (qi == query.length) (350 - gap).coerceAtLeast(1) else 0
-    }
-
     private fun sortMedia(media: List<PhotoEntity>, pref: GallerySettings): List<PhotoEntity> {
         val comparator = when (pref.sortMode) {
             MediaSortMode.DATE -> compareBy<PhotoEntity> { it.dateTaken }.thenBy { it.mediaId }
@@ -349,19 +507,34 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         return media.sortedWith(if (pref.sortDescending) comparator.reversed() else comparator)
     }
 
-    private fun <T> launchTask(successMessage: String, block: suspend () -> T) {
+    private fun postMessage(message: String?) {
+        if (!message.isNullOrBlank()) messageChannel.trySend(message)
+    }
+
+    private fun <T> launchTask(successMessage: String?, block: suspend () -> T) {
         viewModelScope.launch {
-            _busy.value = true
+            beginBusy()
             try {
                 withContext(Dispatchers.IO) { block() }
-                if (_message.value == null) _message.value = successMessage
+                postMessage(successMessage)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (t: Throwable) {
-                container.log.error("Operation", successMessage, t)
-                _message.value = t.message ?: "Operation failed"
+                container.log.error("Operation", successMessage ?: "Operation failed", t)
+                postMessage("Operation failed")
             } finally {
-                _busy.value = false
+                endBusy()
             }
         }
+    }
+
+    private fun beginBusy() {
+        activeTaskCount.incrementAndGet()
+        _busy.value = true
+    }
+
+    private fun endBusy() {
+        if (activeTaskCount.updateAndGet { count -> (count - 1).coerceAtLeast(0) } == 0) _busy.value = false
     }
 }
 

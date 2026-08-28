@@ -25,20 +25,76 @@ class FaceAnalysisEngine(private val context: Context, private val dao: KeepGDao
 
     suspend fun analyze(photo: PhotoEntity): Int = withContext(Dispatchers.IO) {
         val uri = Uri.parse(photo.uri)
-        val bitmap = context.contentResolver.openInputStream(uri).use { stream -> requireNotNull(stream) { "Cannot open ${photo.uri}" }; BitmapFactory.decodeStream(stream) } ?: error("Cannot decode ${photo.uri}")
-        val faces = detector.process(InputImage.fromBitmap(bitmap, 0)).await()
+        val bitmap = decodeSampledBitmap(uri, photo.uri)
+        val analyzedFaces = try {
+            detector.process(InputImage.fromBitmap(bitmap, 0)).await().mapIndexedNotNull { index, face ->
+                val crop = cropFace(bitmap, face) ?: return@mapIndexedNotNull null
+                try {
+                    AnalyzedFace(
+                        index = index,
+                        descriptor = FaceDescriptor.extract(crop, face),
+                        smileProbability = face.smilingProbability,
+                        leftEyeOpenProbability = face.leftEyeOpenProbability,
+                        rightEyeOpenProbability = face.rightEyeOpenProbability,
+                    )
+                } finally {
+                    if (crop !== bitmap) crop.recycle()
+                }
+            }
+        } finally {
+            bitmap.recycle()
+        }
         val existing = dao.getFaces().filterNot { it.mediaId == photo.mediaId }
         val observations = existing.map { FaceClusterer.Observation(it.id, it.clusterId, EmbeddingCodec.decode(it.embedding)) }
         var nextCluster = (existing.mapNotNull { it.clusterId }.maxOrNull() ?: 0L) + 1L
-        val newFaces = faces.mapIndexedNotNull { index, face ->
-            val crop = cropFace(bitmap, face) ?: return@mapIndexedNotNull null
-            val descriptor = FaceDescriptor.extract(crop, face)
-            val cluster = FaceClusterer.bestCluster(descriptor, observations) ?: nextCluster++
-            FaceObservationEntity(mediaId = photo.mediaId, faceIndex = index, embedding = EmbeddingCodec.encode(descriptor), smileProbability = face.smilingProbability, leftEyeOpenProbability = face.leftEyeOpenProbability, rightEyeOpenProbability = face.rightEyeOpenProbability, clusterId = cluster)
+        val newFaces = analyzedFaces.map { analyzed ->
+            val cluster = FaceClusterer.bestCluster(analyzed.descriptor, observations) ?: nextCluster++
+            FaceObservationEntity(
+                mediaId = photo.mediaId,
+                faceIndex = analyzed.index,
+                embedding = EmbeddingCodec.encode(analyzed.descriptor),
+                smileProbability = analyzed.smileProbability,
+                leftEyeOpenProbability = analyzed.leftEyeOpenProbability,
+                rightEyeOpenProbability = analyzed.rightEyeOpenProbability,
+                clusterId = cluster,
+            )
         }
         dao.replaceFaceAnalysis(photo.mediaId, newFaces)
         updateLocation(photo)
         newFaces.size
+    }
+
+    private fun decodeSampledBitmap(uri: Uri, displayUri: String): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri).use { stream ->
+            requireNotNull(stream) { "Cannot open $displayUri" }
+            BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Cannot read image bounds for $displayUri" }
+
+        val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inScaled = false
+        }
+        return context.contentResolver.openInputStream(uri).use { stream ->
+            requireNotNull(stream) { "Cannot reopen $displayUri" }
+            BitmapFactory.decodeStream(stream, null, options)
+        } ?: error("Cannot decode $displayUri")
+    }
+
+    private fun calculateInSampleSize(width: Int, height: Int): Int {
+        var sampleSize = 1
+        while (sampleSize <= Int.MAX_VALUE / 2) {
+            val sampledWidth = (width.toLong() + sampleSize - 1L) / sampleSize
+            val sampledHeight = (height.toLong() + sampleSize - 1L) / sampleSize
+            val withinDimensionLimit = sampledWidth <= MAX_ANALYSIS_DIMENSION && sampledHeight <= MAX_ANALYSIS_DIMENSION
+            val withinPixelLimit = sampledWidth * sampledHeight <= MAX_ANALYSIS_PIXELS
+            if (withinDimensionLimit && withinPixelLimit) break
+            sampleSize *= 2
+        }
+        return sampleSize
     }
 
     private fun cropFace(bitmap: Bitmap, face: Face): Bitmap? {
@@ -53,5 +109,18 @@ class FaceAnalysisEngine(private val context: Context, private val dao: KeepGDao
         if (photo.latitude != null && photo.longitude != null) return
         val location = runCatching { context.contentResolver.openInputStream(Uri.parse(photo.uri)).use { input -> input ?: return@runCatching null; ExifInterface(input).latLong } }.getOrNull()
         dao.updateLocation(photo.mediaId, location?.getOrNull(0), location?.getOrNull(1))
+    }
+
+    private data class AnalyzedFace(
+        val index: Int,
+        val descriptor: FloatArray,
+        val smileProbability: Float?,
+        val leftEyeOpenProbability: Float?,
+        val rightEyeOpenProbability: Float?,
+    )
+
+    private companion object {
+        const val MAX_ANALYSIS_DIMENSION = 4_096L
+        const val MAX_ANALYSIS_PIXELS = 4_000_000L
     }
 }

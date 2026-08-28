@@ -10,8 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.yanagikh.keepg.data.AppLanguage
-import com.yanagikh.keepg.data.GallerySettings
+import com.yanagikh.keepg.data.*
 
 @Composable
 internal fun GallerySettingsScreen(
@@ -24,6 +23,14 @@ internal fun GallerySettingsScreen(
     hasDeletionPassword: Boolean,
     onVideoPreviewAutoPlay: (Boolean) -> Unit,
     onPreviewSwipeNavigation: (Boolean) -> Unit,
+    onGridColumns: (Int) -> Unit,
+    onGridLayoutMode: (GridLayoutMode) -> Unit,
+    onThumbnailScaleMode: (ThumbnailScaleMode) -> Unit,
+    onPreviewScaleMode: (PreviewScaleMode) -> Unit,
+    onShowMediaBadges: (Boolean) -> Unit,
+    onAnimationsEnabled: (Boolean) -> Unit,
+    onCameraGridEnabled: (Boolean) -> Unit,
+    onCameraAudioEnabled: (Boolean) -> Unit,
     onDeleteToTrash: (Boolean) -> Unit,
     onHideSensitiveContent: (Boolean) -> Unit,
     onLanguage: (AppLanguage) -> Unit,
@@ -47,13 +54,13 @@ internal fun GallerySettingsScreen(
                 Column(Modifier.padding(16.dp)) {
                     Text(if (fullFeatures) "KeepG Full" else "KeepG Lite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    Text(if (fullFeatures) "Local smart analysis, secure Vault, native playback, editing, QR/URL detection and repair tools are enabled." else "Lightweight edition: gallery, native playback, albums, search and collections.")
+                    Text(tr(if (fullFeatures) "Local smart analysis, secure Vault, native playback, editing, QR/URL detection and repair tools are enabled." else "Lightweight edition: gallery, native playback, albums, search and collections."))
                 }
             }
         }
         item { Stat(tr("Indexed media"), photoCount, Icons.Default.PhotoLibrary) }
-        if (fullFeatures) item { Stat("Detected faces", faceCount, Icons.Default.Face) }
-        if (fullFeatures) item { Stat("Protected targets", lockCount, Icons.Default.Lock) }
+        if (fullFeatures) item { Stat(tr("Detected faces"), faceCount, Icons.Default.Face) }
+        if (fullFeatures) item { Stat(tr("Protected targets"), lockCount, Icons.Default.Lock) }
         item {
             ListItem(
                 { Text(tr("Video preview autoplay")) },
@@ -64,10 +71,88 @@ internal fun GallerySettingsScreen(
         }
         item {
             ListItem(
-                { Text("Swipe between previews") },
-                supportingContent = { Text("Swipe left or right in image and video previews to move through the current library order. Disabled while media is zoomed in.") },
+                { Text(tr("Swipe between previews")) },
+                supportingContent = { Text(tr("Swipe left or right inside the current album or search order. Navigation is disabled while media is zoomed in.")) },
                 leadingContent = { Icon(Icons.Default.SwapHoriz, null) },
                 trailingContent = { Switch(settings.previewSwipeNavigation, onPreviewSwipeNavigation) },
+            )
+        }
+        item {
+            ElevatedCard {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(tr("Grid columns"), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text(settings.gridColumns.toString())
+                    }
+                    Slider(
+                        value = settings.gridColumns.toFloat(),
+                        onValueChange = { onGridColumns(it.toInt()) },
+                        valueRange = 2f..8f,
+                        steps = 5,
+                    )
+                    Text(tr("Grid layout"), fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GridLayoutMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = settings.gridLayoutMode == mode,
+                                onClick = { onGridLayoutMode(mode) },
+                                label = { Text(tr(gridLayoutLabel(mode))) },
+                            )
+                        }
+                    }
+                    Text(tr("Thumbnail framing"), fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ThumbnailScaleMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = settings.thumbnailScaleMode == mode,
+                                onClick = { onThumbnailScaleMode(mode) },
+                                label = { Text(tr(if (mode == ThumbnailScaleMode.CROP) "Fill" else "Fit")) },
+                            )
+                        }
+                    }
+                    Text(tr("Full-screen preview framing"), fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        PreviewScaleMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = settings.previewScaleMode == mode,
+                                onClick = { onPreviewScaleMode(mode) },
+                                label = { Text(tr(if (mode == PreviewScaleMode.FILL) "Fill" else "Fit")) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            ListItem(
+                { Text(tr("Media badges")) },
+                supportingContent = { Text(tr("Show video duration, GIF, favorite, and selection badges on thumbnails.")) },
+                leadingContent = { Icon(Icons.Default.Label, null) },
+                trailingContent = { Switch(settings.showMediaBadges, onShowMediaBadges) },
+            )
+        }
+        item {
+            ListItem(
+                { Text(tr("Interface animations")) },
+                supportingContent = { Text(tr("Animate tab, grid, and preview transitions.")) },
+                leadingContent = { Icon(Icons.Default.Animation, null) },
+                trailingContent = { Switch(settings.animationsEnabled, onAnimationsEnabled) },
+            )
+        }
+        item {
+            ListItem(
+                { Text(tr("Camera composition grid")) },
+                supportingContent = { Text(tr("Show a rule-of-thirds grid when KeepG Camera opens.")) },
+                leadingContent = { Icon(Icons.Default.GridOn, null) },
+                trailingContent = { Switch(settings.cameraGridEnabled, onCameraGridEnabled) },
+            )
+        }
+        item {
+            ListItem(
+                { Text(tr("Record camera audio")) },
+                supportingContent = { Text(tr("Include microphone audio in new videos after permission is granted.")) },
+                leadingContent = { Icon(Icons.Default.Mic, null) },
+                trailingContent = { Switch(settings.cameraAudioEnabled, onCameraAudioEnabled) },
             )
         }
         item {
@@ -97,7 +182,7 @@ internal fun GallerySettingsScreen(
         item {
             ListItem(
                 { Text(tr("Deletion password")) },
-                supportingContent = { Text(tr("Set or replace the password required before deleting media.")) },
+                supportingContent = { Text(tr(if (hasDeletionPassword) "Replace the password required before deleting media." else "Set the password required before deleting media.")) },
                 leadingContent = { Icon(Icons.Default.Password, null) },
                 trailingContent = { TextButton({ password = ""; passwordError = false; passwordDialog = true }) { Text(tr("Set password")) } },
             )
@@ -105,7 +190,7 @@ internal fun GallerySettingsScreen(
         item {
             ListItem(
                 { Text(tr("Media permissions")) },
-                supportingContent = { Text("Grant or review Android photo, video and media-location access. Camera access is requested only when opening KeepG Camera.") },
+                supportingContent = { Text(tr("Grant or review Android photo, video and media-location access. Camera access is requested only when opening KeepG Camera.")) },
                 leadingContent = { Icon(Icons.Default.AdminPanelSettings, null) },
                 trailingContent = { TextButton(onPermissions) { Text(tr("Grant")) } },
             )
@@ -113,9 +198,9 @@ internal fun GallerySettingsScreen(
         item {
             ElevatedCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Broad media support", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("JPEG/JFIF, PNG, WebP, GIF, BMP, HEIC/HEIF, AVIF, DNG, TIFF, ICO, SVG and Android-indexed MP4/MOV/3GP/MKV/WebM/AVI/MPEG/TS media are recognized when a device decoder/provider exposes them.")
-                    Text("The home-screen KeepG widget provides Photos, Albums, Camera, and Vault shortcuts when supported by the launcher.")
+                    Text(tr("Broad media support"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(tr("JPEG/JFIF, PNG, WebP, GIF, BMP, HEIC/HEIF, AVIF, DNG, TIFF, ICO, SVG and Android-indexed MP4/MOV/3GP/MKV/WebM/AVI/MPEG/TS media are recognized when a device decoder/provider exposes them."))
+                    Text(tr("The home-screen KeepG widget provides Photos, Albums, Camera, and Vault shortcuts when supported by the launcher."))
                 }
             }
         }
@@ -123,7 +208,7 @@ internal fun GallerySettingsScreen(
         item {
             ListItem(
                 { Text(tr("Debug logging")) },
-                supportingContent = { Text("Write a rotating app-private KeepG log. Error lines are still sent to Logcat when disabled.") },
+                supportingContent = { Text(tr("Write a rotating app-private KeepG log. Error lines are still sent to Logcat when disabled.")) },
                 leadingContent = { Icon(Icons.Default.BugReport, null) },
                 trailingContent = { Switch(debugEnabled, onDebugEnabled) },
             )
@@ -180,7 +265,7 @@ internal fun GallerySettingsScreen(
     if (showLog) {
         AlertDialog(
             onDismissRequest = { showLog = false },
-            title = { Text("KeepG debug log") },
+            title = { Text(tr("KeepG debug log")) },
             text = { SelectionContainer { Text(onShowLog(), style = MaterialTheme.typography.bodySmall, modifier = Modifier.heightIn(max = 420.dp)) } },
             confirmButton = { TextButton({ showLog = false }) { Text(tr("Close")) } },
         )
@@ -194,4 +279,10 @@ private fun languageLabel(language: AppLanguage): String = when (language) {
     AppLanguage.CHINESE -> tr("Chinese")
     AppLanguage.JAPANESE -> tr("Japanese")
     AppLanguage.KOREAN -> tr("Korean")
+}
+
+private fun gridLayoutLabel(mode: GridLayoutMode): String = when (mode) {
+    GridLayoutMode.SQUARE -> "Square"
+    GridLayoutMode.PORTRAIT -> "Portrait"
+    GridLayoutMode.ADAPTIVE -> "Adaptive"
 }

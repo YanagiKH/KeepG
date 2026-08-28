@@ -1,6 +1,7 @@
 package com.yanagikh.keepg.ui
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,15 +29,20 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -44,6 +50,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.yanagikh.keepg.advanced.AdvancedEditRequest
 import com.yanagikh.keepg.advanced.BackgroundRemovalMode
@@ -52,7 +61,9 @@ import com.yanagikh.keepg.advanced.TextLayerSpec
 import com.yanagikh.keepg.data.CollectionEntity
 import com.yanagikh.keepg.data.LockEntity
 import com.yanagikh.keepg.data.PhotoEntity
+import com.yanagikh.keepg.data.PreviewScaleMode
 import com.yanagikh.keepg.data.VideoEditRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -60,6 +71,8 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +83,7 @@ internal fun MediaPreviewDialogV2(
     isFavorite: Boolean,
     fullFeatures: Boolean,
     swipeNavigationEnabled: Boolean,
+    previewScaleMode: PreviewScaleMode = PreviewScaleMode.FIT,
     canNavigatePrevious: Boolean,
     canNavigateNext: Boolean,
     onPrevious: () -> Unit,
@@ -127,7 +141,7 @@ internal fun MediaPreviewDialogV2(
                                         onClick = { showMore = false; if (lock == null) onLock() else onRemoveLock(lock) },
                                     )
                                     if (fullFeatures) {
-                                        DropdownMenuItem({ Text("Vault") }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
+                                        DropdownMenuItem({ Text(tr("Vault")) }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
                                         if (photo.mimeType.startsWith("image/")) {
                                             DropdownMenuItem({ Text(tr("Analyze")) }, { showMore = false; onAnalyze() }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) })
                                             DropdownMenuItem({ Text(tr("Links")) }, { showMore = false; onDetectLinks(null, null) }, leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) })
@@ -150,6 +164,7 @@ internal fun MediaPreviewDialogV2(
                             controlsVisible = videoChromeVisible,
                             onControlsVisibleChange = { videoChromeVisible = it },
                             swipeNavigationEnabled = swipeNavigationEnabled,
+                            previewScaleMode = previewScaleMode,
                             canNavigatePrevious = canNavigatePrevious,
                             canNavigateNext = canNavigateNext,
                             onPrevious = onPrevious,
@@ -162,6 +177,7 @@ internal fun MediaPreviewDialogV2(
                             linkDetection = fullFeatures,
                             onDetectLinks = onDetectLinks,
                             swipeNavigationEnabled = swipeNavigationEnabled,
+                            previewScaleMode = previewScaleMode,
                             canNavigatePrevious = canNavigatePrevious,
                             canNavigateNext = canNavigateNext,
                             onPrevious = onPrevious,
@@ -176,14 +192,14 @@ internal fun MediaPreviewDialogV2(
                                 modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
                                 shape = RoundedCornerShape(50),
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = .72f),
-                            ) { IconButton(onPrevious) { Icon(Icons.Default.ChevronLeft, "Previous media") } }
+                            ) { IconButton(onPrevious) { Icon(Icons.Default.ChevronLeft, tr("Previous media")) } }
                         }
                         if (canNavigateNext) {
                             Surface(
                                 modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
                                 shape = RoundedCornerShape(50),
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = .72f),
-                            ) { IconButton(onNext) { Icon(Icons.Default.ChevronRight, "Next media") } }
+                            ) { IconButton(onNext) { Icon(Icons.Default.ChevronRight, tr("Next media")) } }
                         }
                     }
                 }
@@ -236,9 +252,9 @@ internal fun MediaPreviewDialogV2(
         AlertDialog(
             onDismissRequest = { repair = false },
             title = { Text(tr("Repair")) },
-            text = { Text("KeepG creates a recovered copy instead of destructively rewriting the original.") },
-            confirmButton = { TextButton({ onRepair(false); repair = false }) { Text("Preserve date") } },
-            dismissButton = { Row { TextButton({ onRepair(true); repair = false }) { Text("Use current date") }; TextButton({ repair = false }) { Text(tr("Cancel")) } } },
+            text = { Text(tr("KeepG creates a recovered copy instead of destructively rewriting the original.")) },
+            confirmButton = { TextButton({ onRepair(false); repair = false }) { Text(tr("Preserve date")) } },
+            dismissButton = { Row { TextButton({ onRepair(true); repair = false }) { Text(tr("Use current date")) }; TextButton({ repair = false }) { Text(tr("Cancel")) } } },
         )
     }
 }
@@ -296,6 +312,7 @@ private fun ZoomableImagePreviewV2(
     linkDetection: Boolean,
     onDetectLinks: (Float?, Float?) -> Unit,
     swipeNavigationEnabled: Boolean,
+    previewScaleMode: PreviewScaleMode,
     canNavigatePrevious: Boolean,
     canNavigateNext: Boolean,
     onPrevious: () -> Unit,
@@ -307,19 +324,19 @@ private fun ZoomableImagePreviewV2(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(viewport, photo.width, photo.height, scale) {
-        translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation)
+    LaunchedEffect(viewport, photo.width, photo.height, scale, previewScaleMode) {
+        translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation, previewScaleMode == PreviewScaleMode.FILL)
         onScaleChanged(scale)
     }
 
     Box(
         Modifier.fillMaxSize().clipToBounds()
             .onSizeChanged { viewport = it }
-            .pointerInput(photo.mediaId, viewport) {
+            .pointerInput(photo.mediaId, viewport, previewScaleMode) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     val nextScale = normalizedZoom(scale, zoom, 16f)
                     scale = nextScale
-                    translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan)
+                    translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan, previewScaleMode == PreviewScaleMode.FILL)
                 }
             }
             .pointerInput(photo.mediaId, scale, swipeNavigationEnabled, canNavigatePrevious, canNavigateNext) {
@@ -351,7 +368,7 @@ private fun ZoomableImagePreviewV2(
                             (position.x - center.x - translation.x) / scale + center.x,
                             (position.y - center.y - translation.y) / scale + center.y,
                         )
-                        fitNormalizedPointV2(unscaled, viewport, photo.width, photo.height)?.let { (x, y) -> onDetectLinks(x, y) }
+                        fitNormalizedPointV2(unscaled, viewport, photo.width, photo.height, previewScaleMode == PreviewScaleMode.FILL)?.let { (x, y) -> onDetectLinks(x, y) }
                     },
                 )
             },
@@ -361,7 +378,7 @@ private fun ZoomableImagePreviewV2(
             model = Uri.parse(photo.uri),
             contentDescription = photo.displayName,
             modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer(scaleX = scale, scaleY = scale, translationX = translation.x, translationY = translation.y),
-            contentScale = ContentScale.Fit,
+            contentScale = if (previewScaleMode == PreviewScaleMode.FILL) ContentScale.Crop else ContentScale.Fit,
         )
         if (linkDetection) {
             Surface(Modifier.align(Alignment.TopCenter).padding(8.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .78f)) {
@@ -377,6 +394,7 @@ private fun ZoomableVideoPlayerV2(
     controlsVisible: Boolean,
     onControlsVisibleChange: (Boolean) -> Unit,
     swipeNavigationEnabled: Boolean,
+    previewScaleMode: PreviewScaleMode,
     canNavigatePrevious: Boolean,
     canNavigateNext: Boolean,
     onPrevious: () -> Unit,
@@ -384,9 +402,13 @@ private fun ZoomableVideoPlayerV2(
     onScaleChanged: (Float) -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var position by rememberSaveable(photo.mediaId) { mutableLongStateOf(0L) }
     var requestedPlay by rememberSaveable(photo.mediaId) { mutableStateOf(true) }
     var speed by rememberSaveable(photo.mediaId) { mutableFloatStateOf(1f) }
+    var lifecycleStarted by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     val player = remember(photo.mediaId) {
         ExoPlayer.Builder(context).build().apply {
             repeatMode = Player.REPEAT_MODE_ONE
@@ -394,7 +416,7 @@ private fun ZoomableVideoPlayerV2(
             playbackParameters = PlaybackParameters(speed)
             if (position > 0L) seekTo(position)
             prepare()
-            playWhenReady = requestedPlay
+            playWhenReady = requestedPlay && lifecycleStarted
         }
     }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
@@ -405,25 +427,42 @@ private fun ZoomableVideoPlayerV2(
     var playing by remember { mutableStateOf(requestedPlay) }
     var swipeDistance by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(player) {
+    val latestRequestedPlay by rememberUpdatedState(requestedPlay)
+    DisposableEffect(lifecycleOwner, player) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    lifecycleStarted = true
+                    player.playWhenReady = latestRequestedPlay
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    position = player.currentPosition.coerceAtLeast(0L)
+                    player.pause()
+                    playing = false
+                    lifecycleStarted = false
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             position = player.currentPosition.coerceAtLeast(0L)
-            requestedPlay = player.playWhenReady
             player.release()
         }
     }
-    LaunchedEffect(player) {
+    LaunchedEffect(player, lifecycleStarted) {
+        if (!lifecycleStarted) return@LaunchedEffect
         while (true) {
             position = player.currentPosition.coerceAtLeast(0L)
             val d = player.duration
             if (d > 0L) duration = d
             playing = player.isPlaying
-            requestedPlay = player.playWhenReady
             delay(250)
         }
     }
-    LaunchedEffect(viewport, photo.width, photo.height, scale) {
-        translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation)
+    LaunchedEffect(viewport, photo.width, photo.height, scale, previewScaleMode) {
+        translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, scale, translation, previewScaleMode == PreviewScaleMode.FILL)
         onScaleChanged(scale)
     }
     LaunchedEffect(controlsVisible, speedMenu, photo.mediaId) {
@@ -435,11 +474,11 @@ private fun ZoomableVideoPlayerV2(
 
     Box(
         Modifier.fillMaxSize().clipToBounds().onSizeChanged { viewport = it }
-            .pointerInput(photo.mediaId, viewport) {
+            .pointerInput(photo.mediaId, viewport, previewScaleMode) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     val nextScale = normalizedZoom(scale, zoom, 12f)
                     scale = nextScale
-                    translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan)
+                    translation = clampMediaTranslation(viewport.width, viewport.height, photo.width, photo.height, nextScale, translation + pan, previewScaleMode == PreviewScaleMode.FILL)
                     onScaleChanged(nextScale)
                     onControlsVisibleChange(true)
                 }
@@ -484,6 +523,7 @@ private fun ZoomableVideoPlayerV2(
                 fallbackWidth = photo.width,
                 fallbackHeight = photo.height,
                 modifier = Modifier.fillMaxSize(),
+                fillContainer = previewScaleMode == PreviewScaleMode.FILL,
             )
         }
 
@@ -513,8 +553,9 @@ private fun ZoomableVideoPlayerV2(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton({
                             onControlsVisibleChange(true)
-                            if (player.isPlaying) player.pause() else player.play()
-                            requestedPlay = player.playWhenReady
+                            requestedPlay = !requestedPlay
+                            if (lifecycleStarted) player.playWhenReady = requestedPlay
+                            playing = requestedPlay && lifecycleStarted
                         }) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, null) }
                         Text("${formatDuration(position)} / ${formatDuration(duration)}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f), maxLines = 1)
                         Box {
@@ -533,7 +574,7 @@ private fun ZoomableVideoPlayerV2(
                                 }
                             }
                         }
-                        IconButton({ scale = 1f; translation = Offset.Zero; onScaleChanged(1f); onControlsVisibleChange(true) }) { Icon(Icons.Default.CenterFocusStrong, "Reset zoom") }
+                        IconButton({ scale = 1f; translation = Offset.Zero; onScaleChanged(1f); onControlsVisibleChange(true) }) { Icon(Icons.Default.CenterFocusStrong, tr("Reset zoom")) }
                     }
                 }
             }
@@ -554,23 +595,38 @@ private fun AdvancedImageEditorDialogV2(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var rotation by remember { mutableFloatStateOf(0f) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
+    var sourceSize by remember(photo.mediaId) {
+        mutableStateOf(IntSize(photo.width.coerceAtLeast(1), photo.height.coerceAtLeast(1)))
+    }
     var cropLeft by remember { mutableFloatStateOf(0f) }
     var cropTop by remember { mutableFloatStateOf(0f) }
     var cropRight by remember { mutableFloatStateOf(1f) }
     var cropBottom by remember { mutableFloatStateOf(1f) }
-    var cropMode by remember { mutableStateOf("Free") }
+    var cropMode by remember { mutableStateOf("Original") }
     var dragMode by remember { mutableStateOf(CropDragMode.NONE) }
     var background by remember { mutableStateOf(BackgroundRemovalMode.NONE) }
     var backgroundStrength by remember { mutableFloatStateOf(.28f) }
+    var brightness by remember { mutableFloatStateOf(0f) }
+    var contrast by remember { mutableFloatStateOf(1f) }
+    var saturation by remember { mutableFloatStateOf(1f) }
     var outputName by remember { mutableStateOf(photo.displayName.substringBeforeLast('.', photo.displayName) + "_edit") }
     var textInput by remember { mutableStateOf("") }
     var layers by remember { mutableStateOf<List<TextLayerSpec>>(emptyList()) }
+    val latestLayers by rememberUpdatedState(layers)
     val borderColor = MaterialTheme.colorScheme.primary
+    val density = LocalDensity.current
 
     fun setPreset(mode: String) {
         cropMode = mode
-        val rect = cropRectV2(mode, photo.width, photo.height)
+        val rect = cropRectV2(mode, viewport.width, viewport.height, sourceSize.width, sourceSize.height)
         cropLeft = rect[0]; cropTop = rect[1]; cropRight = rect[2]; cropBottom = rect[3]
+    }
+
+    LaunchedEffect(viewport, cropMode, sourceSize) {
+        if (viewport.width > 0 && viewport.height > 0 && cropMode != "Free") {
+            val rect = cropRectV2(cropMode, viewport.width, viewport.height, sourceSize.width, sourceSize.height)
+            cropLeft = rect[0]; cropTop = rect[1]; cropRight = rect[2]; cropBottom = rect[3]
+        }
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -587,12 +643,16 @@ private fun AdvancedImageEditorDialogV2(
                                 offsetY = if (viewport.height > 0) offset.y / viewport.height else 0f,
                                 scale = scale,
                                 rotation = rotation,
+                                viewportAspectRatio = if (viewport.width > 0 && viewport.height > 0) viewport.width.toFloat() / viewport.height else 1f,
                                 cropLeft = cropLeft,
                                 cropTop = cropTop,
                                 cropRight = cropRight,
                                 cropBottom = cropBottom,
                                 backgroundRemoval = background,
                                 backgroundStrength = backgroundStrength,
+                                brightness = brightness,
+                                contrast = contrast,
+                                saturation = saturation,
                                 textLayers = layers,
                             )
                         )
@@ -610,15 +670,17 @@ private fun AdvancedImageEditorDialogV2(
                     contentAlignment = Alignment.Center,
                 ) {
                     AsyncImage(
-                        Uri.parse(photo.uri), null,
-                        Modifier.fillMaxSize().clipToBounds().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y, rotationZ = rotation),
+                        model = Uri.parse(photo.uri),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y, rotationZ = rotation),
                         contentScale = ContentScale.Fit,
+                        onSuccess = { state ->
+                            val drawable = state.result.drawable
+                            if (drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0) {
+                                sourceSize = IntSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
+                            }
+                        },
                     )
-                    layers.forEachIndexed { index, layer ->
-                        Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.scrim.copy(alpha = .35f), modifier = Modifier.align(Alignment.Center).offset(y = (index * 28).dp)) {
-                            Text(layer.text, Modifier.padding(4.dp), color = MaterialTheme.colorScheme.inverseOnSurface)
-                        }
-                    }
                     Canvas(
                         Modifier.fillMaxSize().pointerInput(viewport, cropLeft, cropTop, cropRight, cropBottom) {
                             detectDragGestures(
@@ -694,9 +756,54 @@ private fun AdvancedImageEditorDialogV2(
                         drawRect(shade, Offset(r, t), Size(size.width - r, b - t))
                         drawRect(borderColor, Offset(l, t), Size(r - l, b - t), style = Stroke(3.dp.toPx()))
                     }
+                    val previewTextSize = with(density) {
+                        (min(
+                            (cropRight - cropLeft).coerceAtLeast(.02f) * viewport.width,
+                            (cropBottom - cropTop).coerceAtLeast(.02f) * viewport.height,
+                        ) * .075f).coerceAtLeast(16f).toSp()
+                    }
+                    layers.forEachIndexed { index, layer ->
+                        Text(
+                            text = layer.text.take(120),
+                            color = Color.White,
+                            fontSize = previewTextSize,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
+                            style = TextStyle(shadow = Shadow(Color.Black, Offset(0f, 2f), 4f)),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset {
+                                    IntOffset(
+                                        (layer.x.coerceIn(0f, 1f) * viewport.width).roundToInt(),
+                                        (layer.y.coerceIn(0f, 1f) * viewport.height).roundToInt(),
+                                    )
+                                }
+                                .graphicsLayer(
+                                    scaleX = layer.scale,
+                                    scaleY = layer.scale,
+                                    rotationZ = layer.rotation,
+                                    transformOrigin = TransformOrigin(0f, 0f),
+                                )
+                                .pointerInput(index, viewport) {
+                                    detectTransformGestures { _, pan, zoom, gestureRotation ->
+                                        if (viewport.width <= 0 || viewport.height <= 0) return@detectTransformGestures
+                                        val current = latestLayers.getOrNull(index) ?: return@detectTransformGestures
+                                        layers = latestLayers.toMutableList().also { mutable ->
+                                            mutable[index] = current.copy(
+                                                x = (current.x + pan.x / viewport.width).coerceIn(0f, .95f),
+                                                y = (current.y + pan.y / viewport.height).coerceIn(0f, .95f),
+                                                scale = (current.scale * zoom).coerceIn(.35f, 5f),
+                                                rotation = (current.rotation + gestureRotation) % 360f,
+                                            )
+                                        }
+                                    }
+                                },
+                        )
+                    }
                 }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text("Drag/pinch/rotate the image. Drag inside the crop box to move it; drag its edges or corners to resize it.", style = MaterialTheme.typography.bodySmall) }
+                    item { Text(tr("Drag, pinch, or rotate the image, crop box, and text layers directly on the preview."), style = MaterialTheme.typography.bodySmall) }
                     item { OutlinedTextField(outputName, { outputName = it }, Modifier.fillMaxWidth(), label = { Text(tr("Output name")) }, singleLine = true) }
                     item {
                         Text(tr("Crop"), fontWeight = FontWeight.Bold)
@@ -705,13 +812,22 @@ private fun AdvancedImageEditorDialogV2(
                         }
                     }
                     item {
-                        Text("Quick edits", fontWeight = FontWeight.Bold)
+                        Text(tr("Quick edits"), fontWeight = FontWeight.Bold)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.ROTATE_RIGHT) }) { Icon(Icons.Default.RotateRight, null); Text("Rotate") }
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.FLIP_HORIZONTAL) }) { Icon(Icons.Default.Flip, null); Text("Flip") }
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.GRAYSCALE) }) { Icon(Icons.Default.FilterBAndW, null); Text("Grayscale") }
-                            TextButton({ scale = 1f; offset = Offset.Zero; rotation = 0f }) { Text("Reset view") }
+                            OutlinedButton({ onQuickEdit(MediaEditOperation.ROTATE_RIGHT) }) { Icon(Icons.Default.RotateRight, null); Text(tr("Rotate")) }
+                            OutlinedButton({ onQuickEdit(MediaEditOperation.FLIP_HORIZONTAL) }) { Icon(Icons.Default.Flip, null); Text(tr("Flip")) }
+                            OutlinedButton({ onQuickEdit(MediaEditOperation.GRAYSCALE) }) { Icon(Icons.Default.FilterBAndW, null); Text(tr("Grayscale")) }
+                            TextButton({ scale = 1f; offset = Offset.Zero; rotation = 0f }) { Text(tr("Reset view")) }
                         }
+                    }
+                    item {
+                        Text(tr("Color adjustments"), fontWeight = FontWeight.Bold)
+                        Text(trf("Brightness: %s", String.format(Locale.ROOT, "%+.0f%%", brightness * 100f)), style = MaterialTheme.typography.labelMedium)
+                        Slider(brightness, { brightness = it }, valueRange = -1f..1f)
+                        Text(trf("Contrast: %s", String.format(Locale.ROOT, "%.0f%%", contrast * 100f)), style = MaterialTheme.typography.labelMedium)
+                        Slider(contrast, { contrast = it }, valueRange = .25f..2.5f)
+                        Text(trf("Saturation: %s", String.format(Locale.ROOT, "%.0f%%", saturation * 100f)), style = MaterialTheme.typography.labelMedium)
+                        Slider(saturation, { saturation = it }, valueRange = 0f..2f)
                     }
                     item {
                         Text(tr("Background"), fontWeight = FontWeight.Bold)
@@ -749,6 +865,8 @@ private fun AdvancedImageEditorDialogV2(
 @Composable
 private fun AdvancedVideoEditorDialogV2(photo: PhotoEntity, onDismiss: () -> Unit, onRefresh: () -> Unit) {
     val context = LocalContext.current
+    val appLanguage = LocalAppLanguage.current
+    fun localized(key: String): String = UiLocalizer.text(appLanguage, key)
     val repository = remember(context) { VideoEditRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val durationSeconds = max(1f, photo.durationMs / 1000f)
@@ -762,14 +880,14 @@ private fun AdvancedVideoEditorDialogV2(photo: PhotoEntity, onDismiss: () -> Uni
         title = { Text(tr("Video editor")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Trim by dragging the range handles. KeepG writes a new MP4 and leaves the source untouched.")
+                Text(tr("Trim by dragging the range handles. KeepG writes a new MP4 and leaves the source untouched."))
                 RangeSlider(value = range, onValueChange = { range = it }, valueRange = 0f..durationSeconds)
                 Text(String.format(Locale.ROOT, "%.1fs — %.1fs", range.start, range.endInclusive))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(mute, { mute = it })
-                    Text("Remove audio")
+                    Text(tr("Remove audio"))
                 }
-                message?.let { Text(it, color = if (it.startsWith("Created")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+                message?.let { Text(it, color = if (it == localized("Created edited copy")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
                 if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         },
@@ -780,13 +898,18 @@ private fun AdvancedVideoEditorDialogV2(photo: PhotoEntity, onDismiss: () -> Uni
                     working = true
                     message = null
                     scope.launch {
-                        runCatching {
+                        try {
                             repository.createEditedCopy(photo, (range.start * 1000).toLong(), (range.endInclusive * 1000).toLong(), mute)
-                        }.onSuccess {
-                            message = "Created edited copy"
+                            message = localized("Created edited copy")
                             onRefresh()
-                        }.onFailure { message = it.message ?: "Video edit failed" }
-                        working = false
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (error: Throwable) {
+                            Log.e("KeepGPreview", "Video edit failed", error)
+                            message = localized("Video edit failed")
+                        } finally {
+                            working = false
+                        }
                     }
                 },
             ) { Text(tr("Apply edit")) }
@@ -832,32 +955,21 @@ private fun DetailRowV2(label: String, value: String) {
     Row(Modifier.fillMaxWidth()) { Text(label, Modifier.width(100.dp), fontWeight = FontWeight.Bold); Text(value, Modifier.weight(1f)) }
 }
 
-private fun fitNormalizedPointV2(position: Offset, viewport: IntSize, imageWidth: Int, imageHeight: Int): Pair<Float, Float>? {
+private fun fitNormalizedPointV2(position: Offset, viewport: IntSize, imageWidth: Int, imageHeight: Int, fillViewport: Boolean = false): Pair<Float, Float>? {
     if (imageWidth <= 0 || imageHeight <= 0 || viewport.width <= 0 || viewport.height <= 0) return null
     val imageAspect = imageWidth.toFloat() / imageHeight
     val viewportAspect = viewport.width.toFloat() / viewport.height
-    val drawWidth: Float
-    val drawHeight: Float
-    val left: Float
-    val top: Float
-    if (imageAspect > viewportAspect) {
-        drawWidth = viewport.width.toFloat(); drawHeight = drawWidth / imageAspect; left = 0f; top = (viewport.height - drawHeight) / 2f
+    val scale = if (fillViewport) {
+        max(viewport.width.toFloat() / imageWidth, viewport.height.toFloat() / imageHeight)
     } else {
-        drawHeight = viewport.height.toFloat(); drawWidth = drawHeight * imageAspect; left = (viewport.width - drawWidth) / 2f; top = 0f
+        kotlin.math.min(viewport.width.toFloat() / imageWidth, viewport.height.toFloat() / imageHeight)
     }
-    if (position.x !in left..(left + drawWidth) || position.y !in top..(top + drawHeight)) return null
+    val drawWidth = imageWidth * scale
+    val drawHeight = imageHeight * scale
+    val left = (viewport.width - drawWidth) / 2f
+    val top = (viewport.height - drawHeight) / 2f
+    if (!fillViewport && (position.x !in left..(left + drawWidth) || position.y !in top..(top + drawHeight))) return null
     return ((position.x - left) / drawWidth).coerceIn(0f, 1f) to ((position.y - top) / drawHeight).coerceIn(0f, 1f)
-}
-
-private fun cropRectV2(mode: String, width: Int, height: Int): FloatArray {
-    if (mode == "Free" || mode == "Original" || width <= 0 || height <= 0) return floatArrayOf(0f, 0f, 1f, 1f)
-    val target = when (mode) { "Square" -> 1f; "4:3" -> 4f / 3f; "16:9" -> 16f / 9f; else -> width.toFloat() / height }
-    val current = width.toFloat() / height
-    return if (current > target) {
-        val fraction = target / current; val inset = (1f - fraction) / 2f; floatArrayOf(inset, 0f, 1f - inset, 1f)
-    } else {
-        val fraction = current / target; val inset = (1f - fraction) / 2f; floatArrayOf(0f, inset, 1f, 1f - inset)
-    }
 }
 
 private fun formatBytesV2(bytes: Long): String {

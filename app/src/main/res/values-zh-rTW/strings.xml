@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">KeepG</string>
+    <string name="widget_description">私人相簿捷徑</string>
+    <string name="widget_photos">相片</string>
+    <string name="widget_albums">相簿</string>
+    <string name="widget_camera">相機</string>
+    <string name="widget_vault">保險庫</string>
+</resources>
