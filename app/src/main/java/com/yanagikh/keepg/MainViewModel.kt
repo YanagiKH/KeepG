@@ -120,7 +120,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                 matchesSize(media, filters.size) &&
                 matchesExtension(media, filters.extension) &&
                 (
-                    matchesMediaSearch(media, filters.query, indexedText = null, includeImageText = false) ||
+                    matchesMediaSearch(media, filters.query) ||
                         (filters.includeImageText && media.mediaId in textMatches)
                 )
         }.let { sortMedia(it, pref) }
