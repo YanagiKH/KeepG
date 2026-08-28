@@ -21,14 +21,14 @@ import kotlinx.coroutines.withContext
 internal fun SmartScreen(photos: List<PhotoEntity>, faces: List<FaceObservationEntity>, people: List<PersonProfileEntity>, rules: List<SmartRuleEntity>, busy: Boolean, viewModel: MainViewModel) {
     var rename by remember { mutableStateOf<Long?>(null) }; var personName by remember { mutableStateOf("") }; var addRule by remember { mutableStateOf(false) }
     val clusters = remember(faces) { faces.mapNotNull { it.clusterId }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value } }
-    val matchingCounts by produceState<Map<Long, Int>>(emptyMap(), photos, faces, rules) {
-        val computedCounts = withContext(Dispatchers.Default) {
+    var matchingCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    LaunchedEffect(photos, faces, rules) {
+        matchingCounts = withContext(Dispatchers.Default) {
             val facesByMedia = faces.groupBy { it.mediaId }
             rules.associate { rule ->
                 rule.id to photos.count { photo -> SmartRuleEvaluator.matches(photo, facesByMedia[photo.mediaId].orEmpty(), rule) }
             }
         }
-        value = computedCounts
     }
     LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
