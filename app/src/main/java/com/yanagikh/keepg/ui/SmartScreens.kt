@@ -22,12 +22,13 @@ internal fun SmartScreen(photos: List<PhotoEntity>, faces: List<FaceObservationE
     var rename by remember { mutableStateOf<Long?>(null) }; var personName by remember { mutableStateOf("") }; var addRule by remember { mutableStateOf(false) }
     val clusters = remember(faces) { faces.mapNotNull { it.clusterId }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value } }
     val matchingCounts by produceState<Map<Long, Int>>(emptyMap(), photos, faces, rules) {
-        value = withContext(Dispatchers.Default) {
+        val computedCounts = withContext(Dispatchers.Default) {
             val facesByMedia = faces.groupBy { it.mediaId }
             rules.associate { rule ->
                 rule.id to photos.count { photo -> SmartRuleEvaluator.matches(photo, facesByMedia[photo.mediaId].orEmpty(), rule) }
             }
         }
+        value = computedCounts
     }
     LazyColumn(contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
