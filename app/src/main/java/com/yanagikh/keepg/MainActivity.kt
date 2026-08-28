@@ -49,6 +49,7 @@ class MainActivity : FragmentActivity() {
             if (Build.VERSION.SDK_INT >= 34) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         } else {
             add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= 28) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
         add(Manifest.permission.ACCESS_MEDIA_LOCATION)
     }.toTypedArray()

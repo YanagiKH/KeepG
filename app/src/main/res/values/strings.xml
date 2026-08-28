@@ -1,1 +1,8 @@
-<resources><string name="app_name">KeepG</string></resources>
+<resources>
+    <string name="app_name">KeepG</string>
+    <string name="widget_description">Private gallery shortcuts</string>
+    <string name="widget_photos">Photos</string>
+    <string name="widget_albums">Albums</string>
+    <string name="widget_camera">Camera</string>
+    <string name="widget_vault">Vault</string>
+</resources>

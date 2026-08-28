@@ -15,11 +15,47 @@ interface KeepGDao {
     @Query("SELECT * FROM photos WHERE bucketId = :bucketId ORDER BY dateTaken DESC")
     fun observeAlbum(bucketId: Long): Flow<List<PhotoEntity>>
 
+    @Query("SELECT * FROM media_text_index")
+    fun observeMediaTextIndex(): Flow<List<MediaTextIndexEntity>>
+
+    @Query("SELECT COUNT(*) FROM media_text_index")
+    fun observeMediaTextIndexCount(): Flow<Int>
+
+    @Query("SELECT mediaId FROM media_text_index")
+    suspend fun getIndexedMediaIds(): List<Long>
+
+    @Query("SELECT media_text_index.mediaId FROM media_text_index INNER JOIN photos ON photos.mediaId = media_text_index.mediaId WHERE (:bucketId IS NULL OR photos.bucketId = :bucketId) AND instr(lower(media_text_index.text), lower(:query)) > 0")
+    suspend fun searchMediaText(query: String, bucketId: Long?): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPhotos(photos: List<PhotoEntity>)
 
     @Query("DELETE FROM photos WHERE lastScannedAt < :scanStartedAt")
     suspend fun prunePhotos(scanStartedAt: Long)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMediaTextIndex(index: MediaTextIndexEntity)
+
+    @Query("DELETE FROM media_text_index WHERE mediaId NOT IN (SELECT mediaId FROM photos)")
+    suspend fun pruneMediaTextIndex()
+
+    @Query("DELETE FROM locks WHERE targetType = 'PHOTO' AND targetId NOT IN (SELECT CAST(mediaId AS TEXT) FROM photos)")
+    suspend fun prunePhotoLocks()
+
+    @Query("DELETE FROM face_observations WHERE mediaId NOT IN (SELECT mediaId FROM photos)")
+    suspend fun pruneFaceObservations()
+
+    @Query("DELETE FROM collection_items WHERE mediaId NOT IN (SELECT mediaId FROM photos)")
+    suspend fun pruneCollectionItems()
+
+    @Query("DELETE FROM media_text_index")
+    suspend fun clearMediaTextIndex()
+
+    @Query("DELETE FROM media_text_index WHERE mediaId = :mediaId")
+    suspend fun deleteMediaTextIndex(mediaId: Long)
+
+    @Query("DELETE FROM media_text_index WHERE mediaId IN (SELECT mediaId FROM photos WHERE bucketId = :bucketId)")
+    suspend fun deleteAlbumTextIndex(bucketId: Long)
 
     @Query("UPDATE photos SET latitude = :latitude, longitude = :longitude WHERE mediaId = :mediaId")
     suspend fun updateLocation(mediaId: Long, latitude: Double?, longitude: Double?)
@@ -87,14 +123,41 @@ interface KeepGDao {
     @Insert
     suspend fun insertCollection(collection: CollectionEntity): Long
 
+    @Query("UPDATE collections SET name = :name WHERE id = :collectionId")
+    suspend fun renameCollection(collectionId: Long, name: String)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addCollectionItem(item: CollectionItemEntity)
 
     @Query("DELETE FROM collection_items WHERE collectionId = :collectionId AND mediaId = :mediaId")
     suspend fun removeCollectionItem(collectionId: Long, mediaId: Long)
 
+    @Query("DELETE FROM collection_items WHERE collectionId = :collectionId")
+    suspend fun clearCollectionItems(collectionId: Long)
+
+    @Query("DELETE FROM collections WHERE id = :collectionId")
+    suspend fun deleteCollectionRow(collectionId: Long)
+
     @Query("SELECT photos.* FROM photos INNER JOIN collection_items ON photos.mediaId = collection_items.mediaId WHERE collection_items.collectionId = :collectionId ORDER BY photos.dateTaken DESC")
     fun observeCollectionPhotos(collectionId: Long): Flow<List<PhotoEntity>>
+
+    @Transaction
+    suspend fun deleteCollection(collectionId: Long) {
+        clearCollectionItems(collectionId)
+        deleteCollectionRow(collectionId)
+    }
+
+    @Transaction
+    suspend fun replaceScannedPhotos(photos: List<PhotoEntity>, scanStartedAt: Long, pruneMissing: Boolean) {
+        if (photos.isNotEmpty()) upsertPhotos(photos)
+        if (pruneMissing) {
+            prunePhotos(scanStartedAt)
+            pruneMediaTextIndex()
+            prunePhotoLocks()
+            pruneFaceObservations()
+            pruneCollectionItems()
+        }
+    }
 
     @Transaction
     suspend fun replaceFaceAnalysis(mediaId: Long, faces: List<FaceObservationEntity>) {

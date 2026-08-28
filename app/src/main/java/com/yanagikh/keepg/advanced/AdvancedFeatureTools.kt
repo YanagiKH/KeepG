@@ -40,17 +40,22 @@ data class AdvancedEditRequest(
     val offsetY: Float = 0f,
     val scale: Float = 1f,
     val rotation: Float = 0f,
+    val viewportAspectRatio: Float = 1f,
     val cropLeft: Float = 0f,
     val cropTop: Float = 0f,
     val cropRight: Float = 1f,
     val cropBottom: Float = 1f,
     val backgroundRemoval: BackgroundRemovalMode = BackgroundRemovalMode.NONE,
     val backgroundStrength: Float = 0.28f,
+    val brightness: Float = 0f,
+    val contrast: Float = 1f,
+    val saturation: Float = 1f,
     val textLayers: List<TextLayerSpec> = emptyList(),
 )
 
 interface AdvancedFeatureTools {
     val available: Boolean
+    suspend fun recognizeText(media: PhotoEntity): String
     suspend fun detectExternalLinks(media: PhotoEntity, normalizedX: Float? = null, normalizedY: Float? = null): List<DetectedExternalLink>
     suspend fun edit(media: PhotoEntity, operation: MediaEditOperation, strength: Float = 0.35f): String
     suspend fun editAdvanced(media: PhotoEntity, request: AdvancedEditRequest): String

@@ -2,6 +2,7 @@ package com.yanagikh.keepg.ui
 
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Test
 
 class MediaTransformsTest {
@@ -56,5 +57,28 @@ class MediaTransformsTest {
         assertEquals(3, steppedGridColumns(3, 1.02f))
         assertEquals(2, steppedGridColumns(2, 1.5f))
         assertEquals(8, steppedGridColumns(8, 0.5f))
+    }
+
+    @Test
+    fun originalCropExcludesViewportLetterboxing() {
+        assertArrayEquals(
+            floatArrayOf(.375f, 0f, .625f, 1f),
+            cropRectV2("Original", 2000, 1000, 1000, 2000),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun aspectPresetRemainsInsideFittedImage() {
+        assertArrayEquals(
+            floatArrayOf(.375f, .25f, .625f, .75f),
+            cropRectV2("Square", 2000, 1000, 1000, 2000),
+            0.0001f,
+        )
+        assertArrayEquals(
+            floatArrayOf(1f / 6f, .375f, 5f / 6f, .625f),
+            cropRectV2("4:3", 1000, 2000, 2000, 1000),
+            0.0001f,
+        )
     }
 }

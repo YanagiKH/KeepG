@@ -32,12 +32,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import com.yanagikh.keepg.TextIndexProgress
 import com.yanagikh.keepg.data.*
 import kotlinx.coroutines.flow.collectLatest
 import java.util.Locale
@@ -45,6 +49,7 @@ import java.util.Locale
 @Composable
 internal fun LibraryScreenV2(
     photos: List<PhotoEntity>,
+    availablePhotos: List<PhotoEntity>,
     locks: List<LockEntity>,
     unlocked: Set<String>,
     favorites: Set<Long>,
@@ -54,14 +59,23 @@ internal fun LibraryScreenV2(
     typeFilter: MediaTypeFilter,
     sizeFilter: MediaSizeFilter,
     extensionFilter: String,
+    includeImageText: Boolean,
+    searchBucketId: Long?,
+    textIndexing: Boolean,
+    textIndexProgress: TextIndexProgress?,
+    indexedImageCount: Int,
     onQuery: (String) -> Unit,
     onTypeFilter: (MediaTypeFilter) -> Unit,
     onSizeFilter: (MediaSizeFilter) -> Unit,
     onExtensionFilter: (String) -> Unit,
+    onIncludeImageText: (Boolean) -> Unit,
+    onSearchBucketId: (Long?) -> Unit,
+    onIndexImageText: (Boolean) -> Unit,
+    onClearImageTextIndex: () -> Unit,
     onSort: (MediaSortMode) -> Unit,
     onSortDescending: (Boolean) -> Unit,
     onGridColumns: (Int) -> Unit,
-    onPhoto: (PhotoEntity) -> Unit,
+    onPhoto: (PhotoEntity, List<Long>) -> Unit,
     onToggleSelection: (Long) -> Unit,
     onClearSelection: () -> Unit,
     onSelectAll: () -> Unit,
@@ -76,6 +90,12 @@ internal fun LibraryScreenV2(
 ) {
     var showFilters by remember { mutableStateOf(false) }
     var showSort by remember { mutableStateOf(false) }
+    val previewScopeIds = remember(photos) { photos.map { it.mediaId } }
+    val searchScopes = remember(availablePhotos) {
+        availablePhotos.groupBy { it.bucketId }.mapNotNull { (bucketId, media) ->
+            media.firstOrNull()?.let { bucketId to it.bucketName }
+        }.sortedBy { it.second.lowercase(Locale.ROOT) }
+    }
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query,
@@ -96,6 +116,11 @@ internal fun LibraryScreenV2(
             if (extensionFilter.isNotBlank()) InputChip(true, { onExtensionFilter("") }, { Text(".$extensionFilter") }, trailingIcon = { Icon(Icons.Default.Close, null) })
             if (typeFilter != MediaTypeFilter.ALL) InputChip(true, { onTypeFilter(MediaTypeFilter.ALL) }, { Text(tr(typeLabelV2(typeFilter))) })
             if (sizeFilter != MediaSizeFilter.ANY) InputChip(true, { onSizeFilter(MediaSizeFilter.ANY) }, { Text(tr(sizeLabelV2(sizeFilter))) })
+            searchBucketId?.let { bucketId ->
+                val label = searchScopes.firstOrNull { it.first == bucketId }?.second ?: tr("Selected album")
+                InputChip(true, { onSearchBucketId(null) }, { Text(label) }, trailingIcon = { Icon(Icons.Default.Close, null) })
+            }
+            if (includeImageText) InputChip(true, { onIncludeImageText(false) }, { Text(tr("Image text")) }, leadingIcon = { Icon(Icons.Default.DocumentScanner, null) })
         }
         if (selectedIds.isNotEmpty()) {
             SelectionBarV2(
@@ -120,7 +145,11 @@ internal fun LibraryScreenV2(
             favorites = favorites,
             columns = settings.gridColumns,
             autoPlayVideos = settings.videoPreviewAutoPlay,
-            onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo) },
+            layoutMode = settings.gridLayoutMode,
+            thumbnailScaleMode = settings.thumbnailScaleMode,
+            showMediaBadges = settings.showMediaBadges,
+            animationsEnabled = settings.animationsEnabled,
+            onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
             onLongPress = { photo -> onToggleSelection(photo.mediaId) },
             onGridColumns = onGridColumns,
         )
@@ -139,6 +168,54 @@ internal fun LibraryScreenV2(
                         MediaSizeFilter.entries.forEach { size -> FilterChip(sizeFilter == size, { onSizeFilter(size) }, { Text(tr(sizeLabelV2(size))) }) }
                     }
                     OutlinedTextField(extensionFilter, onExtensionFilter, label = { Text(tr("Extension")) }, supportingText = { Text("jpg · png · gif · mp4 · webm …") }, singleLine = true)
+                    Text(tr("Search range"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(searchBucketId == null, { onSearchBucketId(null) }, { Text(tr("Entire library")) })
+                        searchScopes.forEach { (bucketId, label) ->
+                            FilterChip(searchBucketId == bucketId, { onSearchBucketId(bucketId) }, { Text(label, maxLines = 1) })
+                        }
+                    }
+                    if (fullFeatures) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(tr("Search text inside images"), fontWeight = FontWeight.Bold)
+                                Text(trf("%s images indexed on this device", indexedImageCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(includeImageText, onIncludeImageText)
+                        }
+                        textIndexProgress?.let { progress ->
+                            if (progress.total > 0) {
+                                LinearProgressIndicator(
+                                    progress = { progress.processed.toFloat() / progress.total.toFloat() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            Text(
+                                trf("Indexed %s of %s images · %s failed", progress.processed, progress.total, progress.failures),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                onClick = { onIndexImageText(indexedImageCount > 0) },
+                                enabled = !textIndexing,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                if (textIndexing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.DocumentScanner, null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(tr(if (indexedImageCount > 0) "Reindex image text" else "Index image text"))
+                            }
+                            if (indexedImageCount > 0) {
+                                TextButton(onClearImageTextIndex, enabled = !textIndexing) { Text(tr("Clear index")) }
+                            }
+                        }
+                        Text(
+                            tr("Text recognition runs locally. Index only media you are comfortable storing as searchable text on this device."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             },
             confirmButton = { TextButton({ showFilters = false }) { Text(tr("Close")) } },
@@ -184,13 +261,13 @@ private fun SelectionBarV2(
         ) {
             IconButton(onClear) { Icon(Icons.Default.Close, tr("Clear selection")) }
             Text(trf("Selected: %s", count), fontWeight = FontWeight.Bold)
-            TextButton(onSelectAll) { Icon(Icons.Default.SelectAll, null); Spacer(Modifier.width(4.dp)); Text("All") }
+            TextButton(onSelectAll) { Icon(Icons.Default.SelectAll, null); Spacer(Modifier.width(4.dp)); Text(tr("All")) }
             IconButton(onFavorite) { Icon(Icons.Default.Favorite, tr("Favorite selected")) }
             IconButton(onShare) { Icon(Icons.Default.Share, tr("Share selected")) }
             IconButton(onCollection) { Icon(Icons.Default.Collections, tr("Collection")) }
             if (fullFeatures) {
                 IconButton(onProtect) { Icon(Icons.Default.Lock, tr("Protect")) }
-                IconButton(onVault) { Icon(Icons.Default.EnhancedEncryption, "Vault") }
+                IconButton(onVault) { Icon(Icons.Default.EnhancedEncryption, tr("Vault")) }
                 IconButton(onAnalyze) { Icon(Icons.Default.AutoAwesome, tr("Analyze")) }
             }
             IconButton(onDelete) { Icon(Icons.Default.Delete, tr("Delete selected")) }
@@ -208,6 +285,10 @@ internal fun PhotoGridV2(
     favorites: Set<Long> = emptySet(),
     columns: Int = 3,
     autoPlayVideos: Boolean = false,
+    layoutMode: GridLayoutMode = GridLayoutMode.SQUARE,
+    thumbnailScaleMode: ThumbnailScaleMode = ThumbnailScaleMode.CROP,
+    showMediaBadges: Boolean = true,
+    animationsEnabled: Boolean = true,
     onPhoto: (PhotoEntity) -> Unit,
     onLongPress: (PhotoEntity) -> Unit = {},
     onGridColumns: (Int) -> Unit = {},
@@ -217,6 +298,7 @@ internal fun PhotoGridV2(
         return
     }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val gridState = rememberLazyGridState()
     val photoById = remember(photos) { photos.associateBy { it.mediaId } }
     val latestColumns by rememberUpdatedState(columns.coerceIn(2, 8))
@@ -229,8 +311,23 @@ internal fun PhotoGridV2(
     }
     var activeVideoId by remember { mutableStateOf<Long?>(null) }
     var gridTransforming by remember { mutableStateOf(false) }
+    val latestAutoPlay by rememberUpdatedState(autoPlayVideos)
+    val latestActiveVideoId by rememberUpdatedState(activeVideoId)
 
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> if (latestAutoPlay && latestActiveVideoId != null) player.play()
+                Lifecycle.Event.ON_STOP -> player.pause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.release()
+        }
+    }
 
     LaunchedEffect(gridState, photos, locks, unlocked, autoPlayVideos, gridTransforming) {
         if (!autoPlayVideos || gridTransforming) {
@@ -260,7 +357,11 @@ internal fun PhotoGridV2(
     LazyVerticalGrid(
         GridCells.Fixed(columns.coerceIn(2, 8)),
         state = gridState,
-        modifier = Modifier.fillMaxSize().clipToBounds().animateContentSize().pointerInput(Unit) {
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .then(if (animationsEnabled) Modifier.animateContentSize() else Modifier)
+            .pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 var accumulated = 1f
@@ -297,10 +398,16 @@ internal fun PhotoGridV2(
             val visible = lock == null || isUnlocked(lock, unlocked)
             val selected = photo.mediaId in selectedIds
             val activeVideo = visible && !gridTransforming && photo.mediaId == activeVideoId
+            val aspectRatio = when (layoutMode) {
+                GridLayoutMode.SQUARE -> 1f
+                GridLayoutMode.PORTRAIT -> .75f
+                GridLayoutMode.ADAPTIVE -> if (photo.width > 0 && photo.height > 0) {
+                    (photo.width.toFloat() / photo.height.toFloat()).coerceIn(.65f, 1.8f)
+                } else 1f
+            }
             Box(
-                Modifier
-                    .animateItem()
-                    .aspectRatio(1f)
+                (if (animationsEnabled) Modifier.animateItem() else Modifier)
+                    .aspectRatio(aspectRatio)
                     .clip(RoundedCornerShape(8.dp))
                     .clipToBounds()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -310,29 +417,29 @@ internal fun PhotoGridV2(
                     )
             ) {
                 if (visible) {
-                    if (activeVideo) GridVideoSurface(player, photo, Modifier.fillMaxSize())
-                    else MediaThumbnail(photo, Modifier.fillMaxSize())
+                    if (activeVideo) GridVideoSurface(player, photo, thumbnailScaleMode == ThumbnailScaleMode.CROP, Modifier.fillMaxSize())
+                    else MediaThumbnail(photo, Modifier.fillMaxSize(), thumbnailScaleMode)
 
-                    if (photo.mimeType.startsWith("video/")) {
+                    if (showMediaBadges && photo.mimeType.startsWith("video/")) {
                         Surface(
                             modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = .80f),
                         ) {
                             Row(Modifier.padding(horizontal = 5.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (activeVideo) Icons.Default.Pause else Icons.Default.PlayArrow, "Video", Modifier.size(16.dp))
+                                Icon(if (activeVideo) Icons.Default.Pause else Icons.Default.PlayArrow, tr("Video"), Modifier.size(16.dp))
                                 if (photo.durationMs > 0L) Text(formatDuration(photo.durationMs), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
-                    if (photo.mimeType == "image/gif" || photo.displayName.endsWith(".gif", true)) {
+                    if (showMediaBadges && (photo.mimeType == "image/gif" || photo.displayName.endsWith(".gif", true))) {
                         Surface(
                             modifier = Modifier.align(Alignment.BottomStart).padding(5.dp),
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = .80f),
                         ) { Text("GIF", Modifier.padding(horizontal = 5.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) }
                     }
-                    if (photo.mediaId in favorites) Icon(Icons.Default.Favorite, null, Modifier.align(Alignment.TopEnd).padding(5.dp), tint = MaterialTheme.colorScheme.primary)
+                    if (showMediaBadges && photo.mediaId in favorites) Icon(Icons.Default.Favorite, null, Modifier.align(Alignment.TopEnd).padding(5.dp), tint = MaterialTheme.colorScheme.primary)
                     if (selected) {
                         Surface(Modifier.align(Alignment.TopStart).padding(5.dp), shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary) {
                             Icon(Icons.Default.Check, null, Modifier.padding(3.dp).size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
@@ -340,7 +447,7 @@ internal fun PhotoGridV2(
                     }
                 } else {
                     Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Lock, "Locked", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Lock, tr("Locked"), tint = MaterialTheme.colorScheme.primary)
                         Text(tr("Protected"), style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -350,17 +457,22 @@ internal fun PhotoGridV2(
 }
 
 @Composable
-private fun GridVideoSurface(player: ExoPlayer, photo: PhotoEntity, modifier: Modifier = Modifier) {
+private fun GridVideoSurface(player: ExoPlayer, photo: PhotoEntity, fillContainer: Boolean, modifier: Modifier = Modifier) {
     FittedVideoTextureSurfaceV2(
         player = player,
         fallbackWidth = photo.width,
         fallbackHeight = photo.height,
+        fillContainer = fillContainer,
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
     )
 }
 
 @Composable
-internal fun MediaThumbnail(photo: PhotoEntity, modifier: Modifier = Modifier) {
+internal fun MediaThumbnail(
+    photo: PhotoEntity,
+    modifier: Modifier = Modifier,
+    scaleMode: ThumbnailScaleMode = ThumbnailScaleMode.CROP,
+) {
     val context = LocalContext.current
     val request = remember(context, photo.uri, photo.mimeType) {
         ImageRequest.Builder(context)
@@ -374,7 +486,7 @@ internal fun MediaThumbnail(photo: PhotoEntity, modifier: Modifier = Modifier) {
         model = request,
         contentDescription = photo.displayName,
         modifier = modifier.clipToBounds(),
-        contentScale = if (photo.mimeType.startsWith("video/")) ContentScale.Fit else ContentScale.Crop,
+        contentScale = if (scaleMode == ThumbnailScaleMode.CROP) ContentScale.Crop else ContentScale.Fit,
     )
 }
 
@@ -390,10 +502,14 @@ internal fun AlbumsScreenV2(
     favorites: Set<Long>,
     selectedIds: Set<Long>,
     settings: GallerySettings,
-    onPhoto: (PhotoEntity) -> Unit,
+    onPhoto: (PhotoEntity, List<Long>) -> Unit,
     onToggleSelection: (Long) -> Unit,
     onGridColumns: (Int) -> Unit,
     onCreateCollection: (String) -> Unit,
+    onRenameCollection: (Long, String) -> Unit,
+    onClearCollection: (Long) -> Unit,
+    onDeleteCollection: (Long) -> Unit,
+    onRemoveFromCollection: (Long, Long) -> Unit,
     onLockAlbum: (Long, String) -> Unit,
     onUnlock: (LockEntity) -> Unit,
     onSelectMedia: (List<PhotoEntity>) -> Unit,
@@ -415,9 +531,19 @@ internal fun AlbumsScreenV2(
     var manageMedia by remember { mutableStateOf<List<PhotoEntity>?>(null) }
     var manageTitle by remember { mutableStateOf("") }
     var manageBucket by remember { mutableStateOf<Long?>(null) }
+    var manageCollection by remember { mutableStateOf<Long?>(null) }
+    var renameCollection by remember { mutableStateOf<CollectionEntity?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    var pendingCollectionAction by remember { mutableStateOf<Pair<String, CollectionEntity>?>(null) }
+    var removeFromCollection by remember { mutableStateOf<Pair<Long, PhotoEntity>?>(null) }
     val favoritesLabel = tr("Favorites")
     val albumLabel = tr("Album")
     val collectionsLabel = tr("Collections")
+    val mediaById = remember(photos) { photos.associateBy { it.mediaId } }
+    val collectionMediaIds = remember(collectionItems) {
+        collectionItems.groupBy { it.collectionId }.mapValues { (_, items) -> items.map { it.mediaId } }
+    }
+    val albumsByBucket = remember(photos) { photos.groupBy { it.bucketId } }
 
     if (trashOpen) {
         TrashManagerV2(
@@ -434,10 +560,10 @@ internal fun AlbumsScreenV2(
             favoritesOpen -> photos.filter { it.mediaId in favorites }
             bucketId != null -> photos.filter { it.bucketId == bucketId }
             else -> {
-                val ids = collectionItems.filter { it.collectionId == collectionId }.map { it.mediaId }.toSet()
-                photos.filter { it.mediaId in ids }
+                collectionMediaIds[collectionId].orEmpty().mapNotNull(mediaById::get)
             }
         }
+        val previewScopeIds = remember(filtered) { filtered.map { it.mediaId } }
         val currentTitle = when {
             favoritesOpen -> favoritesLabel
             bucketId != null -> photos.firstOrNull { it.bucketId == bucketId }?.bucketName ?: albumLabel
@@ -456,7 +582,8 @@ internal fun AlbumsScreenV2(
                     manageMedia = filtered
                     manageTitle = currentTitle
                     manageBucket = bucketId
-                }) { Icon(Icons.Default.MoreVert, "Manage album") }
+                    manageCollection = collectionId
+                }) { Icon(Icons.Default.MoreVert, tr("Manage album")) }
             }
             PhotoGridV2(
                 filtered,
@@ -466,14 +593,21 @@ internal fun AlbumsScreenV2(
                 favorites,
                 settings.gridColumns,
                 settings.videoPreviewAutoPlay,
-                onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo) },
-                onLongPress = { onToggleSelection(it.mediaId) },
+                layoutMode = settings.gridLayoutMode,
+                thumbnailScaleMode = settings.thumbnailScaleMode,
+                showMediaBadges = settings.showMediaBadges,
+                animationsEnabled = settings.animationsEnabled,
+                onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
+                onLongPress = { photo ->
+                    collectionId?.let { id -> removeFromCollection = id to photo }
+                        ?: onToggleSelection(photo.mediaId)
+                },
                 onGridColumns = onGridColumns,
             )
         }
     } else {
         val normalizedQuery = albumQuery.trim().lowercase(Locale.ROOT)
-        val albums = photos.groupBy { it.bucketId }.values.filter {
+        val albums = albumsByBucket.values.filter {
             it.isNotEmpty() && (normalizedQuery.isBlank() || fuzzyContainsV2(it.first().bucketName, normalizedQuery))
         }
         val visibleCollections = collections.filter { normalizedQuery.isBlank() || fuzzyContainsV2(it.name, normalizedQuery) }
@@ -487,14 +621,14 @@ internal fun AlbumsScreenV2(
                     headlineContent = { Text(favoritesLabel, fontWeight = FontWeight.Bold) },
                     supportingContent = { Text(favorites.size.toString()) },
                     leadingContent = { Icon(Icons.Default.Favorite, null) },
-                    trailingContent = { IconButton({ manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }) { Icon(Icons.Default.MoreVert, "Manage") } },
-                    modifier = Modifier.combinedClickable(onClick = { favoritesOpen = true }, onLongClick = { manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null }),
+                    trailingContent = { IconButton({ manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null; manageCollection = null }) { Icon(Icons.Default.MoreVert, tr("Manage")) } },
+                    modifier = Modifier.combinedClickable(onClick = { favoritesOpen = true }, onLongClick = { manageMedia = favoriteMedia; manageTitle = favoritesLabel; manageBucket = null; manageCollection = null }),
                 )
             }
             item {
                 ListItem(
-                    headlineContent = { Text("Trash", fontWeight = FontWeight.Bold) },
-                    supportingContent = { Text("${trash.size} items · restore or permanently delete") },
+                    headlineContent = { Text(tr("Trash"), fontWeight = FontWeight.Bold) },
+                    supportingContent = { Text(trf("%s items · restore or permanently delete", trash.size)) },
                     leadingContent = { Icon(Icons.Default.DeleteSweep, null) },
                     trailingContent = { Icon(Icons.Default.ChevronRight, null) },
                     modifier = Modifier.combinedClickable(onClick = { trashOpen = true }, onLongClick = { trashOpen = true }),
@@ -507,14 +641,13 @@ internal fun AlbumsScreenV2(
                 }
             }
             items(visibleCollections, key = { "c-${it.id}" }) { collection ->
-                val ids = collectionItems.filter { it.collectionId == collection.id }.map { it.mediaId }.toSet()
-                val media = photos.filter { it.mediaId in ids }
+                val media = collectionMediaIds[collection.id].orEmpty().mapNotNull(mediaById::get)
                 ListItem(
                     headlineContent = { Text(collection.name) },
-                    supportingContent = { Text("${media.size} items") },
+                    supportingContent = { Text(trf("%s items", media.size)) },
                     leadingContent = { if (media.isNotEmpty()) MediaThumbnail(media.first(), Modifier.size(50.dp).clip(RoundedCornerShape(10.dp))) else Icon(Icons.Default.Collections, null) },
-                    trailingContent = { IconButton({ manageMedia = media; manageTitle = collection.name; manageBucket = null }) { Icon(Icons.Default.MoreVert, "Manage") } },
-                    modifier = Modifier.combinedClickable(onClick = { collectionId = collection.id }, onLongClick = { manageMedia = media; manageTitle = collection.name; manageBucket = null }),
+                    trailingContent = { IconButton({ manageMedia = media; manageTitle = collection.name; manageBucket = null; manageCollection = collection.id }) { Icon(Icons.Default.MoreVert, tr("Manage")) } },
+                    modifier = Modifier.combinedClickable(onClick = { collectionId = collection.id }, onLongClick = { manageMedia = media; manageTitle = collection.name; manageBucket = null; manageCollection = collection.id }),
                 )
             }
             item {
@@ -527,9 +660,9 @@ internal fun AlbumsScreenV2(
                 val locked = allowProtection && lock != null && !isUnlocked(lock, unlocked)
                 ListItem(
                     headlineContent = { Text(group.first().bucketName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = { Text("${group.size} items${if (locked) " · ${tr("Protected")}" else ""}") },
+                    supportingContent = { Text(if (locked) trf("%s items · Protected", group.size) else trf("%s items", group.size)) },
                     leadingContent = { if (locked) Icon(Icons.Default.Lock, null) else MediaThumbnail(group.first(), Modifier.size(50.dp).clip(RoundedCornerShape(10.dp))) },
-                    trailingContent = { IconButton({ manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id }) { Icon(Icons.Default.MoreVert, "Manage album") } },
+                    trailingContent = { IconButton({ manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id; manageCollection = null }) { Icon(Icons.Default.MoreVert, tr("Manage album")) } },
                     modifier = Modifier.combinedClickable(
                         onClick = { if (locked) onUnlock(requireNotNull(lock)) else bucketId = id },
                         onLongClick = { manageMedia = group; manageTitle = group.first().bucketName; manageBucket = id },
@@ -541,28 +674,93 @@ internal fun AlbumsScreenV2(
 
     manageMedia?.let { media ->
         val bucket = manageBucket
+        val collection = manageCollection?.let { id -> collections.firstOrNull { it.id == id } }
         val albumLock = bucket?.let { id -> locks.firstOrNull { it.targetType == "ALBUM" && it.targetId == id.toString() } }
         AlertDialog(
-            onDismissRequest = { manageMedia = null; manageBucket = null },
+            onDismissRequest = { manageMedia = null; manageBucket = null; manageCollection = null },
             title = { Text(manageTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("${media.size} items", style = MaterialTheme.typography.bodySmall)
-                    AlbumActionButton(Icons.Default.SelectAll, "Select all") { onSelectMedia(media); manageMedia = null }
-                    AlbumActionButton(Icons.Default.Favorite, "Favorite all") { onFavoriteMedia(media); manageMedia = null }
+                    Text(trf("%s items", media.size), style = MaterialTheme.typography.bodySmall)
+                    AlbumActionButton(Icons.Default.SelectAll, tr("Select all")) { onSelectMedia(media); manageMedia = null }
+                    AlbumActionButton(Icons.Default.Favorite, tr("Favorite all")) { onFavoriteMedia(media); manageMedia = null }
                     AlbumActionButton(Icons.Default.Share, tr("Share")) { onShareMedia(media); manageMedia = null }
+                    if (collection != null) {
+                        AlbumActionButton(Icons.Default.Edit, tr("Rename collection")) {
+                            renameCollection = collection
+                            renameValue = collection.name
+                            manageMedia = null
+                            manageCollection = null
+                        }
+                        AlbumActionButton(Icons.Default.RemoveCircleOutline, tr("Clear collection")) {
+                            pendingCollectionAction = "clear" to collection
+                            manageMedia = null
+                            manageCollection = null
+                        }
+                        AlbumActionButton(Icons.Default.DeleteOutline, tr("Delete collection"), destructive = true) {
+                            pendingCollectionAction = "delete" to collection
+                            manageMedia = null
+                            manageCollection = null
+                        }
+                    }
                     if (allowProtection && bucket != null) {
                         AlbumActionButton(if (albumLock == null) Icons.Default.Lock else Icons.Default.LockOpen, if (albumLock == null) tr("Protect") else tr("Unlock")) {
                             if (albumLock == null) onLockAlbum(bucket, manageTitle) else onUnlock(albumLock)
                             manageMedia = null
                         }
-                        AlbumActionButton(Icons.Default.EnhancedEncryption, "Copy album to Vault") { onVaultMedia(media); manageMedia = null }
+                        AlbumActionButton(Icons.Default.EnhancedEncryption, tr("Copy album to Vault")) { onVaultMedia(media); manageMedia = null }
                     }
-                    AlbumActionButton(Icons.Default.Delete, tr("Delete"), destructive = true) { onDeleteMedia(media); manageMedia = null }
+                    AlbumActionButton(Icons.Default.Delete, tr(if (collection == null) "Delete" else "Delete media from device"), destructive = true) { onDeleteMedia(media); manageMedia = null }
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton({ manageMedia = null; manageBucket = null }) { Text(tr("Close")) } },
+            dismissButton = { TextButton({ manageMedia = null; manageBucket = null; manageCollection = null }) { Text(tr("Close")) } },
+        )
+    }
+
+    renameCollection?.let { collection ->
+        AlertDialog(
+            onDismissRequest = { renameCollection = null },
+            title = { Text(tr("Rename collection")) },
+            text = { OutlinedTextField(renameValue, { renameValue = it }, label = { Text(tr("Name")) }, singleLine = true) },
+            confirmButton = {
+                TextButton(
+                    onClick = { onRenameCollection(collection.id, renameValue); renameCollection = null },
+                    enabled = renameValue.isNotBlank(),
+                ) { Text(tr("Save")) }
+            },
+            dismissButton = { TextButton({ renameCollection = null }) { Text(tr("Cancel")) } },
+        )
+    }
+
+    pendingCollectionAction?.let { (action, collection) ->
+        val deleting = action == "delete"
+        AlertDialog(
+            onDismissRequest = { pendingCollectionAction = null },
+            title = { Text(tr(if (deleting) "Delete collection" else "Clear collection")) },
+            text = { Text(tr(if (deleting) "The collection will be deleted. Media files stay on your device." else "All items will be removed from this collection. Media files stay on your device.")) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (deleting) onDeleteCollection(collection.id) else onClearCollection(collection.id)
+                        if (collectionId == collection.id) collectionId = null
+                        pendingCollectionAction = null
+                    }
+                ) { Text(tr(if (deleting) "Delete" else "Clear"), color = if (deleting) MaterialTheme.colorScheme.error else LocalContentColor.current) }
+            },
+            dismissButton = { TextButton({ pendingCollectionAction = null }) { Text(tr("Cancel")) } },
+        )
+    }
+
+    removeFromCollection?.let { (id, photo) ->
+        AlertDialog(
+            onDismissRequest = { removeFromCollection = null },
+            title = { Text(tr("Remove from collection")) },
+            text = { Text(trf("Remove %s from this collection? The media file stays on your device.", photo.displayName)) },
+            confirmButton = {
+                TextButton({ onRemoveFromCollection(id, photo.mediaId); removeFromCollection = null }) { Text(tr("Remove")) }
+            },
+            dismissButton = { TextButton({ removeFromCollection = null }) { Text(tr("Cancel")) } },
         )
     }
 
@@ -588,15 +786,15 @@ private fun TrashManagerV2(
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.Default.ArrowBack, tr("Back")) }
             Column(Modifier.weight(1f)) {
-                Text("Trash", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("${trash.size} recoverable items", style = MaterialTheme.typography.labelMedium)
+                Text(tr("Trash"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(trf("%s recoverable items", trash.size), style = MaterialTheme.typography.labelMedium)
             }
             if (trash.isNotEmpty()) {
-                TextButton({ onRestore(trash) }) { Text("Restore all") }
+                TextButton({ onRestore(trash) }) { Text(tr("Restore all")) }
             }
         }
         if (trash.isEmpty()) {
-            EmptyState(Icons.Default.DeleteSweep, "Trash is empty", "Items moved to Android MediaStore trash appear here until restored or expired.")
+            EmptyState(Icons.Default.DeleteSweep, tr("Trash is empty"), tr("Items moved to Android MediaStore trash appear here until restored or expired."))
         } else {
             LazyColumn(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(trash, key = { "trash-${it.uri}" }) { media ->
@@ -608,8 +806,8 @@ private fun TrashManagerV2(
                                 Text(media.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                                 Text(media.bucketName, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton({ onRestore(listOf(media)) }) { Icon(Icons.Default.RestoreFromTrash, "Restore") }
-                            IconButton({ onDeletePermanently(listOf(media)) }) { Icon(Icons.Default.DeleteForever, "Delete permanently", tint = MaterialTheme.colorScheme.error) }
+                            IconButton({ onRestore(listOf(media)) }) { Icon(Icons.Default.RestoreFromTrash, tr("Restore")) }
+                            IconButton({ onDeletePermanently(listOf(media)) }) { Icon(Icons.Default.DeleteForever, tr("Delete permanently"), tint = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -620,7 +818,7 @@ private fun TrashManagerV2(
                     ) {
                         Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(8.dp))
-                        Text("Delete all permanently", color = MaterialTheme.colorScheme.error)
+                        Text(tr("Delete all permanently"), color = MaterialTheme.colorScheme.error)
                     }
                 }
             }

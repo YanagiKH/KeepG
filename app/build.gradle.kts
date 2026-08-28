@@ -13,8 +13,8 @@ android {
         applicationId = "com.yanagikh.keepg"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -88,6 +88,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.5.3")
     implementation("androidx.camera:camera-lifecycle:1.5.3")
     implementation("androidx.camera:camera-view:1.5.3")
+    implementation("androidx.camera:camera-video:1.5.3")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
@@ -98,6 +99,9 @@ dependencies {
 
     add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
     add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")
+    add("fullImplementation", "com.google.mlkit:text-recognition-chinese:16.0.1")
+    add("fullImplementation", "com.google.mlkit:text-recognition-japanese:16.0.1")
+    add("fullImplementation", "com.google.mlkit:text-recognition-korean:16.0.1")
     add("fullImplementation", "com.google.mlkit:segmentation-selfie:16.0.0-beta6")
 
     testImplementation("junit:junit:4.13.2")

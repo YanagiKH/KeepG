@@ -6,6 +6,7 @@ import com.yanagikh.keepg.data.PhotoEntity
 object AdvancedToolsFactory {
     fun create(context: Context): AdvancedFeatureTools = object : AdvancedFeatureTools {
         override val available: Boolean = false
+        override suspend fun recognizeText(media: PhotoEntity): String = ""
         override suspend fun detectExternalLinks(media: PhotoEntity, normalizedX: Float?, normalizedY: Float?): List<DetectedExternalLink> = emptyList()
         override suspend fun edit(media: PhotoEntity, operation: MediaEditOperation, strength: Float): String =
             error("This operation is available in KeepG Full")

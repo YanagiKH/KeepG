@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">KeepG</string>
+    <string name="widget_description">비공개 갤러리 바로가기</string>
+    <string name="widget_photos">사진</string>
+    <string name="widget_albums">앨범</string>
+    <string name="widget_camera">카메라</string>
+    <string name="widget_vault">보관함</string>
+</resources>

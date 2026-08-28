@@ -13,12 +13,17 @@ internal fun clampMediaTranslation(
     mediaHeight: Int,
     scale: Float,
     translation: Offset,
+    fillViewport: Boolean = false,
 ): Offset {
     if (viewportWidth <= 0 || viewportHeight <= 0 || mediaWidth <= 0 || mediaHeight <= 0) return Offset.Zero
     val safeScale = scale.coerceAtLeast(1f)
-    val fitScale = min(viewportWidth / mediaWidth.toFloat(), viewportHeight / mediaHeight.toFloat())
-    val drawnWidth = mediaWidth * fitScale * safeScale
-    val drawnHeight = mediaHeight * fitScale * safeScale
+    val baseScale = if (fillViewport) {
+        max(viewportWidth / mediaWidth.toFloat(), viewportHeight / mediaHeight.toFloat())
+    } else {
+        min(viewportWidth / mediaWidth.toFloat(), viewportHeight / mediaHeight.toFloat())
+    }
+    val drawnWidth = mediaWidth * baseScale * safeScale
+    val drawnHeight = mediaHeight * baseScale * safeScale
     val maxX = max(0f, (drawnWidth - viewportWidth) / 2f)
     val maxY = max(0f, (drawnHeight - viewportHeight) / 2f)
     return Offset(
@@ -48,4 +53,46 @@ internal fun steppedGridColumns(current: Int, accumulatedZoom: Float, minColumns
     accumulatedZoom >= 1.12f -> (current - 1).coerceIn(minColumns, maxColumns)
     accumulatedZoom <= 0.89f -> (current + 1).coerceIn(minColumns, maxColumns)
     else -> current.coerceIn(minColumns, maxColumns)
+}
+
+/** Returns a normalized crop rectangle contained inside the fitted source image. */
+internal fun cropRectV2(
+    mode: String,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    sourceWidth: Int,
+    sourceHeight: Int,
+): FloatArray {
+    if (viewportWidth <= 0 || viewportHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0) {
+        return floatArrayOf(0f, 0f, 1f, 1f)
+    }
+    val viewportAspect = viewportWidth.toFloat() / viewportHeight
+    val sourceAspect = sourceWidth.toFloat() / sourceHeight
+    val imageRect = if (viewportAspect > sourceAspect) {
+        val width = sourceAspect / viewportAspect
+        val inset = (1f - width) / 2f
+        floatArrayOf(inset, 0f, 1f - inset, 1f)
+    } else {
+        val height = viewportAspect / sourceAspect
+        val inset = (1f - height) / 2f
+        floatArrayOf(0f, inset, 1f, 1f - inset)
+    }
+    if (mode == "Free" || mode == "Original") return imageRect
+    val targetAspect = when (mode) {
+        "Square" -> 1f
+        "4:3" -> 4f / 3f
+        "16:9" -> 16f / 9f
+        else -> sourceAspect
+    }
+    val imageWidth = imageRect[2] - imageRect[0]
+    val imageHeight = imageRect[3] - imageRect[1]
+    return if (sourceAspect > targetAspect) {
+        val cropWidth = imageHeight * viewportHeight * targetAspect / viewportWidth
+        val left = (imageRect[0] + imageRect[2] - cropWidth) / 2f
+        floatArrayOf(left, imageRect[1], left + cropWidth, imageRect[3])
+    } else {
+        val cropHeight = imageWidth * viewportWidth / targetAspect / viewportHeight
+        val top = (imageRect[1] + imageRect[3] - cropHeight) / 2f
+        floatArrayOf(imageRect[0], top, imageRect[2], top + cropHeight)
+    }
 }

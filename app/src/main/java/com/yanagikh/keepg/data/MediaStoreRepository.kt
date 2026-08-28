@@ -18,12 +18,12 @@ class MediaStoreRepository(
 ) {
     suspend fun refresh(): Int = withContext(Dispatchers.IO) {
         val scanStartedAt = System.currentTimeMillis()
-        val media = buildList {
-            addAll(scanCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = false))
-            addAll(scanCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = true))
-        }
-        if (media.isNotEmpty()) dao.upsertPhotos(media)
-        dao.prunePhotos(scanStartedAt)
+        val imageScan = scanCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = false)
+        val videoScan = scanCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = true)
+        val media = imageScan.media + videoScan.media
+        val completeScan = imageScan.succeeded && videoScan.succeeded
+        dao.replaceScannedPhotos(media, scanStartedAt, pruneMissing = completeScan)
+        if (!completeScan) log?.warn("MediaStore", "Partial scan retained the previous library instead of pruning entries")
         log?.info("MediaStore", "Indexed ${media.size} media items")
         media.size
     }
@@ -32,8 +32,8 @@ class MediaStoreRepository(
         if (Build.VERSION.SDK_INT < 30) return@withContext emptyList()
         val scanStartedAt = System.currentTimeMillis()
         buildList {
-            addAll(scanCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = false, trashedOnly = true))
-            addAll(scanCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = true, trashedOnly = true))
+            addAll(scanCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = false, trashedOnly = true).media)
+            addAll(scanCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, scanStartedAt, isVideo = true, trashedOnly = true).media)
         }.sortedByDescending { it.dateTaken }
     }
 
@@ -42,7 +42,7 @@ class MediaStoreRepository(
         scanStartedAt: Long,
         isVideo: Boolean,
         trashedOnly: Boolean = false,
-    ): List<PhotoEntity> {
+    ): ScanResult {
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
             add(MediaStore.MediaColumns.DISPLAY_NAME)
@@ -57,7 +57,7 @@ class MediaStoreRepository(
             if (isVideo) add(MediaStore.Video.VideoColumns.DURATION)
         }.toTypedArray()
         val result = mutableListOf<PhotoEntity>()
-        runCatching {
+        val succeeded = runCatching {
             val cursor = if (trashedOnly && Build.VERSION.SDK_INT >= 30) {
                 val args = Bundle().apply {
                     putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
@@ -72,7 +72,7 @@ class MediaStoreRepository(
                     "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC",
                 )
             }
-            cursor?.use {
+            requireNotNull(cursor) { "MediaStore returned no cursor for $collection" }.use {
                 val idCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                 val nameCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 val mimeCol = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
@@ -110,7 +110,9 @@ class MediaStoreRepository(
                     )
                 }
             }
-        }.onFailure { log?.warn("MediaStore", "Unable to scan $collection", it) }
-        return result
+        }.onFailure { log?.warn("MediaStore", "Unable to scan $collection", it) }.isSuccess
+        return ScanResult(result, succeeded)
     }
+
+    private data class ScanResult(val media: List<PhotoEntity>, val succeeded: Boolean)
 }

@@ -26,6 +26,15 @@ KeepG has two editions:
 
 The separate application IDs allow Full and Lite to be installed on the same Android device.
 
+## Core gallery experience
+
+- Search filenames, albums, MIME metadata, and on-device OCR text, with an optional device-album scope.
+- Browse Photos, Favorites, device albums, recoverable Android trash, and non-destructive KeepG Collections.
+- Rename, clear, or delete Collections and remove individual Collection items without deleting the media file.
+- Swipe full-screen previews strictly within the active album, Collection, Favorites list, or filtered search order.
+- Choose 2–8 grid columns, square/portrait/adaptive tiles, crop/fit thumbnails, fit/fill previews, badges, and interface animations.
+- Capture photos or video with front/rear lenses, tap focus, zoom, exposure compensation, flash/torch, timer, composition grid, selectable video quality, optional microphone audio, and pause/resume recording.
+
 ## Interface demos
 
 > These SVGs are repository demo renders of the implemented information architecture and flows. Exact spacing and Android system chrome vary by device/theme.
@@ -81,24 +90,29 @@ Recognition and decoding are separate concerns. Android/OEM codecs determine whe
 
 Image editing writes a new result under `Pictures/KeepG`; it does not overwrite the source.
 
+- direct drag, pinch, and rotate interaction for the image, crop box, and text layers;
 - rotate 90° right;
 - horizontal flip;
 - grayscale;
-- center square crop;
+- free, original, square, 4:3, and 16:9 crops;
+- brightness, contrast, and saturation adjustments;
+- draggable, scalable, and rotatable text layers;
 - automatic person/background removal using bundled on-device ML Kit selfie segmentation;
 - adjustable manual corner-color background removal;
 - GIF first-frame extraction to alpha-capable PNG.
 
 Video editing writes a new MP4 under `Movies/KeepG` using Android `MediaExtractor`/`MediaMuxer`:
 
-- trim to the first five seconds;
-- remove audio tracks (muted copy).
+- trim to an arbitrary range with draggable handles;
+- optionally remove audio tracks.
 
 Video operations remux rather than transcode. A codec can be playable on a device yet be incompatible with MP4 remuxing; KeepG reports that case and leaves the original untouched. Animated GIF re-encoding is not claimed: the explicit GIF action extracts the first decoded frame.
 
-## QR, barcode and visible URL detection (Full)
+## On-device OCR, QR, and URL detection (Full)
 
-Long-press an unlocked image thumbnail or choose **Links** in media detail. KeepG combines bundled ML Kit barcode scanning and Latin text recognition. Results are normalized and only `http://` or `https://` URLs are offered to the user. Opening a result leaves KeepG and launches the user's external browser.
+KeepG can build a local searchable-text index for images using bundled Latin, Chinese, Japanese, and Korean ML Kit recognizers. Indexing can be limited to one device album, runs on-device, skips protected media, and can be cleared from the search filter panel.
+
+Long-press an unlocked image or choose **Links** in media detail to scan barcodes and visible URLs. Results are normalized and only `http://` or `https://` URLs are offered to the user. Opening a result leaves KeepG and launches the user's external browser.
 
 KeepG itself still declares **no `INTERNET` permission**. It does not fetch the destination page; the browser does.
 
@@ -195,23 +209,26 @@ gradle :app:connectedFullDebugAndroidTest :app:connectedLiteDebugAndroidTest --s
 `.github/workflows/android.yml` verifies both editions:
 
 1. **build-test-lint** — Full/Lite lint, JVM tests and APK assembly.
-2. **instrumentation** — Full/Lite Android tests on an API 35 x86_64 emulator.
+2. **instrumentation** — Full/Lite Android tests on API 26 and API 35 x86_64 emulators.
 
-`.github/workflows/release.yml` runs only after a successful Android CI run on `main` (or an explicit manual dispatch). It builds and attaches:
+`.github/workflows/release.yml` runs only after a successful same-repository `push` CI run for the current `main` commit. It builds and attaches:
 
 - Full and Lite installable debug-signed APKs;
 - universal and ABI-specific APKs when produced by AGP (`arm64-v8a`, `armeabi-v7a`, `x86_64`);
 - Full/Lite AAB bundles;
 - `SHA256SUMS.txt`.
 
-Automatic GitHub prerelease APKs deliberately use Android's test/debug signing identity so they are immediately installable for testing. AABs require a production signing/store pipeline before store distribution. No production private key is committed to this repository.
+Automatic GitHub prerelease APKs deliberately use Android's test/debug signing identity so they are immediately installable for testing. Because GitHub-hosted runners generate an ephemeral debug identity, a later automated build can require uninstalling an earlier test build before installation. AABs require a stable production signing/store pipeline before distribution. No production private key is committed to this repository.
 
 ## Android permissions
 
 - `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` on Android 13+;
 - `READ_MEDIA_VISUAL_USER_SELECTED` on Android 14+;
 - legacy `READ_EXTERNAL_STORAGE` only through Android 12L;
+- legacy `WRITE_EXTERNAL_STORAGE` only through Android 9 for creating edited/captured media;
 - `ACCESS_MEDIA_LOCATION` for EXIF location rules;
+- `CAMERA` for the built-in camera;
+- `RECORD_AUDIO` for optional video sound;
 - `USE_BIOMETRIC` for device authentication.
 
 There is intentionally no `INTERNET` permission.

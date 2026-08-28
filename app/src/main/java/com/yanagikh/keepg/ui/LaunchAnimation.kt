@@ -51,7 +51,7 @@ internal fun KeepGLaunchAnimation(modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.height(18.dp))
             Text("KeepG", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
-            Text("private • organized • on-device", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("private • organized • on-device"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
