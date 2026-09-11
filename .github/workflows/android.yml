@@ -29,10 +29,10 @@ jobs:
       - name: Verify translation coverage
         run: python3 scripts/check_localization.py
       - name: Lint and unit test both editions
-        run: >-
-          gradle :app:lintFullDebug :app:lintLiteDebug
-          :app:testFullDebugUnitTest :app:testLiteDebugUnitTest
-          --stacktrace --no-daemon --max-workers=2
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          gradle :app:lintFullDebug :app:lintLiteDebug :app:testFullDebugUnitTest :app:testLiteDebugUnitTest --stacktrace --no-daemon --max-workers=2 2>&1 | tee ci-logs/build-test-lint.log
       - name: Assemble Full
         run: gradle :app:assembleFullDebug --stacktrace --no-daemon --max-workers=2
       - name: Assemble Lite
@@ -49,6 +49,7 @@ jobs:
           path: |
             app/build/outputs/apk/**/*.apk
             app/build/reports/**
+            ci-logs/**
           if-no-files-found: ignore
   instrumentation:
     runs-on: ubuntu-latest
@@ -89,6 +90,7 @@ jobs:
           name: keepg-device-api-${{ matrix.api-level }}
           path: |
             qa-screenshots/**
+            ci-logs/**
             app/build/reports/androidTests/**
             app/build/outputs/androidTest-results/**
           if-no-files-found: ignore
