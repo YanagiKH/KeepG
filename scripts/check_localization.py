@@ -6,7 +6,15 @@ import xml.etree.ElementTree as ET
 
 root = Path(__file__).resolve().parents[1]
 source = root / 'app/src/main/java/com/yanagikh/keepg/ui/Localization.kt'
-rows = [line.strip().split(r'\t') for line in source.read_text().splitlines() if r'\t' in line and 'split(' not in line]
+def read_rows(text):
+    # Rows outside a Kotlin raw literal are not executable translations.
+    match = re.search(r'parseBundle\(\s*"""(.*?)"""\s*\)', text, re.S)
+    assert match and text.count('"""') == 2, 'Invalid Kotlin translation literal'
+    outside = text[:match.start()] + text[match.end():]
+    assert not any(r'\t' in line and 'split(' not in line for line in outside.splitlines()), 'Translation rows outside literal'
+    return [line.strip().split(r'\t') for line in match.group(1).splitlines() if line.strip()]
+
+rows = read_rows(source.read_text())
 keys = set()
 for row in rows:
     assert len(row) == 4 and all(row), row
