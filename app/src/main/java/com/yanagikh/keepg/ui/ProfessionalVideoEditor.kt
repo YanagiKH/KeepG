@@ -110,7 +110,7 @@ internal fun ProfessionalVideoEditor(photo: PhotoEntity, onDismiss: () -> Unit, 
                             val w = bitmap.width * scale; val h = bitmap.height * scale
                             val x = (size.width - w) / 2; val y = (size.height - h) / 2
                             var handle = CropHandle.MOVE
-                            detectDragGestures(onDragStart = { p -> history = history.begin(); handle = EditGeometry.hit(history.value.crop, (p.x - x) / w, (p.y - y) / h, 32 / w, 32 / h) },
+                            detectDragGestures(onDragStart = { p -> history = history.begin(); handle = EditGeometry.hit(history.value.crop, (p.x - x) / w, (p.y - y) / h, 32.dp.toPx() / w, 32.dp.toPx() / h) },
                                 onDragEnd = ::finish, onDragCancel = ::finish) { event, delta ->
                                 event.consume(); history = history.preview(history.value.copy(crop = EditGeometry.drag(history.value.crop, handle, delta.x / w, delta.y / h)))
                             }

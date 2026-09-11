@@ -43,7 +43,10 @@ class WorkspaceUiTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
     ).bufferedReader().use { it.readText() }
     private fun screenshot(name: String) {
+        compose.mainClock.advanceTimeBy(150)
         compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        Thread.sleep(100) // Allow the Android window compositor to present the asserted frame.
         val image = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         val directory = File(app.getExternalFilesDir(null), "qa-screenshots").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -128,9 +131,13 @@ class WorkspaceUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Save animated copy").fetchSemanticsNodes().any {
             !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
         } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit crop, color and layers").fetchSemanticsNodes().any {
+            !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
+        } }
         compose.onNodeWithText("Save animated copy").assertIsEnabled()
         screenshot("gif-editor")
         compose.onNodeWithText("Edit crop, color and layers").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("editing-canvas").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("editing-canvas").assertExists()
         compose.onNodeWithText("Save changes").performClick()
         compose.onNodeWithText("GIF animation").assertExists()
@@ -168,6 +175,8 @@ class WorkspaceUiTest {
         screenshot("ai-models")
         compose.onNodeWithTag("agent-tab-0").performClick()
         compose.onNodeWithText("Install and select a model first").assertExists()
+        compose.onNodeWithTag("agent-input").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Attach files").assertIsDisplayed()
         screenshot("ai-chat")
         compose.runOnIdle { agent.invalidate() }
     }
