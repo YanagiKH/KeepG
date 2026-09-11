@@ -39,19 +39,21 @@ class WorkspaceUiTest {
         bitmap().let { b -> file.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }; b.recycle() }
         return PhotoEntity(id, android.net.Uri.fromFile(file).toString(), bucket, if (bucket == 10L) "Demo album" else "Other album", "demo_$id.png", "image/png", 0, 600, 600)
     }
+    private fun shell(command: String): String = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+    ).bufferedReader().use { it.readText() }
     private fun screenshot(name: String) {
         compose.waitForIdle()
         val image = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         val directory = File(app.getExternalFilesDir(null), "qa-screenshots").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         image.recycle()
-        // UTP uninstalls the app after each edition. Copy evidence while it exists.
+        // UiAutomation executes argv, not a shell expression: do not join with &&.
+        // Copy evidence before UTP uninstalls the app and removes externalFilesDir.
         val destination = "/sdcard/Download/keepg-qa/${app.packageName}"
-        val command = "mkdir -p $destination && cp ${directory.absolutePath}/$name.png $destination/$name.png && echo copied"
-        val result = android.os.ParcelFileDescriptor.AutoCloseInputStream(
-            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
-        ).bufferedReader().use { it.readText() }
-        check("copied" in result) { "Screenshot evidence was not preserved" }
+        shell("mkdir -p $destination")
+        shell("cp ${directory.absolutePath}/$name.png $destination/$name.png")
+        check(shell("ls $destination/$name.png").trim() == "$destination/$name.png") { "Screenshot evidence was not preserved" }
     }
     @Test fun albumLongPressSelectAllStaysScopedAndClearKeepsAlbum() {
         val photos = listOf(fixture(1, 10), fixture(2, 10), fixture(3, 20))
@@ -144,7 +146,12 @@ class WorkspaceUiTest {
         } } }
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("video-crop").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("video-crop").performTouchInput {
-            swipe(topLeft + androidx.compose.ui.geometry.Offset(3f, 3f), center, 400)
+            // The 4:3 fixture is letterboxed in the wider canvas. Drag its visible
+            // corner, not the empty left margin (moving a full crop is a no-op).
+            val frameWidth = minOf(width.toFloat(), height * 4f / 3f)
+            val frameHeight = frameWidth * 3f / 4f
+            val corner = androidx.compose.ui.geometry.Offset((width - frameWidth) / 2f + 3f, (height - frameHeight) / 2f + 3f)
+            swipe(corner, center, 400)
         }
         compose.onNodeWithContentDescription("Undo").assertIsEnabled().performClick()
         compose.onNodeWithContentDescription("Redo").assertIsEnabled().performClick()
