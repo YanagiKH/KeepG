@@ -1,0 +1,27 @@
+name: Source audit
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive the exact tested source
+        run: |
+          mkdir -p audit
+          git rev-parse HEAD > audit/COMMIT.txt
+          git archive --format=zip --output=audit/keepg-source.zip HEAD
+          (cd audit && sha256sum keepg-source.zip > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keepg-source-audit
+          path: audit/
+          if-no-files-found: error
+          retention-days: 14
