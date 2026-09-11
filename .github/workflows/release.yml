@@ -1,18 +1,15 @@
 name: Publish verified installers
-
 on:
   workflow_run:
     workflows: ["Android CI"]
     types: [completed]
     branches: [main]
-
 permissions:
   contents: write
-
+  actions: read
 concurrency:
   group: keepg-release
   cancel-in-progress: false
-
 jobs:
   publish:
     if: >-
@@ -21,93 +18,30 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
+    env:
+      VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      VERIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
-      - name: Verify source revision is current main
-        id: source
+      - name: Verify trusted current-main source
         env:
           GH_TOKEN: ${{ github.token }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-        shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$VERIFIED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Workflow supplied an invalid source revision."
-            exit 1
-          fi
-          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          if [[ "$VERIFIED_SHA" != "$main_sha" ]]; then
-            echo "::error::Verified workflow revision is not the current refs/heads/main SHA."
-            exit 1
-          fi
-          echo "sha=$VERIFIED_SHA" >> "$GITHUB_OUTPUT"
-
+          [[ "$VERIFIED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" = "$VERIFIED_SHA"
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
-
-      - uses: actions/setup-java@v4
+      - name: Download the exact verified installer bytes
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-
-      - name: Build Full installer
-        run: gradle :app:assembleFullDebug --stacktrace --no-daemon --max-workers=2
-
-      - name: Build Lite installer
-        run: gradle :app:assembleLiteDebug --stacktrace --no-daemon --max-workers=2
-
-      - name: Build Full bundle
-        run: gradle :app:bundleFullRelease --stacktrace --no-daemon --max-workers=2
-
-      - name: Build Lite bundle
-        run: gradle :app:bundleLiteRelease --stacktrace --no-daemon --max-workers=2
-
-      - name: Package release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          while IFS= read -r file; do
-            base="$(basename "$file")"
-            cp "$file" "dist/$base"
-          done < <(find app/build/outputs/apk -type f -name '*.apk' | sort)
-          while IFS= read -r file; do
-            base="$(basename "$file")"
-            cp "$file" "dist/$base"
-          done < <(find app/build/outputs/bundle -type f -name '*.aab' | sort)
-          (cd dist && sha256sum * > SHA256SUMS.txt)
-          echo "Release assets:"
-          ls -lh dist
-
-      - name: Create GitHub prerelease
+          name: keepg-installers
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Validate and publish all assets atomically from a draft
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          short_sha="${SOURCE_SHA:0:7}"
-          tag="build-${GITHUB_RUN_NUMBER}-${short_sha}"
-          cat > release-notes.md <<EOF
-          Automated KeepG verified build from commit \`${SOURCE_SHA}\`.
-
-          Installable APKs are Android debug-key signed so they can be installed directly for testing. Full and Lite are separate application IDs and can coexist. GitHub-hosted runners use an ephemeral debug identity, so replacing an earlier automated test build can require uninstalling it first. ABI-specific and universal APKs are included when generated. AAB files are provided for store/release pipeline processing and require production signing before store distribution.
-
-          The Android CI workflow completed successfully before this automatic release was created.
-          EOF
-          gh release create "$tag" dist/* \
-            --target "$SOURCE_SHA" \
-            --title "KeepG verified build ${GITHUB_RUN_NUMBER} (${short_sha})" \
-            --notes-file release-notes.md \
-            --prerelease
+        run: python3 scripts/publish_release.py

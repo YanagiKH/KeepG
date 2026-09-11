@@ -21,13 +21,15 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Verify translation coverage
-        run: python3 scripts/check_localization.py
+      - name: Verify translation and release validation guards
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Lint and unit test both editions
         run: |
           set -o pipefail
@@ -37,17 +39,32 @@ jobs:
         run: gradle :app:assembleFullDebug --stacktrace --no-daemon --max-workers=2
       - name: Assemble Lite
         run: gradle :app:assembleLiteDebug --stacktrace --no-daemon --max-workers=2
-      - name: Verify install packages exist
-        run: |
-          find app/build/outputs/apk -type f -name '*.apk' -print
-          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 2
-      - name: Upload APKs and reports
+      - name: Build release bundles
+        run: gradle :app:bundleFullRelease :app:bundleLiteRelease --stacktrace --no-daemon --max-workers=2
+      - name: Verify signatures and package the complete installer matrix
+        run: python3 scripts/release_assets.py package
+      - name: Upload verified installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepg-installers
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload package manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepg-package-manifest
+          path: |
+            dist/BUILD-INFO.json
+            dist/SIGNATURES.txt
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: keepg-build-reports
           path: |
-            app/build/outputs/apk/**/*.apk
             app/build/reports/**
             ci-logs/**
           if-no-files-found: ignore
@@ -65,6 +82,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4

@@ -1,7 +1,6 @@
 package com.yanagikh.keepg.editor
 
 import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 import org.junit.Assert.*
 import org.junit.Test
 import kotlin.random.Random
@@ -15,15 +14,25 @@ class GifCodecTest {
         encoder.close()
         val bytes = output.toByteArray()
         assertEquals(5, GifSafety.validate(bytes))
-        ImageIO.createImageInputStream(bytes.inputStream()).use { input ->
-            val reader = ImageIO.getImageReadersByFormatName("gif").next()
-            try {
-                reader.input = input
-                assertEquals(5, reader.getNumImages(true))
-                assertEquals(128, reader.read(0).width)
-                assertEquals(0xFFFF0000.toInt(), reader.read(0).getRGB(0, 0))
-                repeat(5) { assertEquals(96, reader.read(it).height) }
-            } finally { reader.dispose() }
+        // Android's Kotlin compile API excludes java.desktop; the host JVM still has
+        // ImageIO. Reflection preserves this independent decoder oracle in the JVM test.
+        val imageIO = Class.forName("javax.imageio.ImageIO")
+        val input = imageIO.getMethod("createImageInputStream", Any::class.java).invoke(null, bytes.inputStream())
+        val readers = imageIO.getMethod("getImageReadersByFormatName", String::class.java).invoke(null, "gif") as Iterator<*>
+        val reader = requireNotNull(readers.next())
+        val readerApi = Class.forName("javax.imageio.ImageReader")
+        val imageApi = Class.forName("java.awt.image.BufferedImage")
+        try {
+            readerApi.getMethod("setInput", Any::class.java).invoke(reader, input)
+            assertEquals(5, readerApi.getMethod("getNumImages", Boolean::class.javaPrimitiveType).invoke(reader, true))
+            val read = readerApi.getMethod("read", Int::class.javaPrimitiveType)
+            val first = read.invoke(reader, 0)
+            assertEquals(128, imageApi.getMethod("getWidth").invoke(first))
+            assertEquals(0xFFFF0000.toInt(), imageApi.getMethod("getRGB", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).invoke(first, 0, 0))
+            repeat(5) { assertEquals(96, imageApi.getMethod("getHeight").invoke(read.invoke(reader, it))) }
+        } finally {
+            readerApi.getMethod("dispose").invoke(reader)
+            (input as java.io.Closeable).close()
         }
         assertTrue(runCatching { GifSafety.validate(bytes.copyOf(bytes.size - 1)) }.isFailure)
         val bomb = bytes.clone(); bomb[6] = -1; bomb[7] = 127; bomb[8] = -1; bomb[9] = 127

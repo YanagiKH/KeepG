@@ -45,6 +45,13 @@ class WorkspaceUiTest {
         val directory = File(app.getExternalFilesDir(null), "qa-screenshots").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         image.recycle()
+        // UTP uninstalls the app after each edition. Copy evidence while it exists.
+        val destination = "/sdcard/Download/keepg-qa/${app.packageName}"
+        val command = "mkdir -p $destination && cp ${directory.absolutePath}/$name.png $destination/$name.png && echo copied"
+        val result = android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        ).bufferedReader().use { it.readText() }
+        check("copied" in result) { "Screenshot evidence was not preserved" }
     }
     @Test fun albumLongPressSelectAllStaysScopedAndClearKeepsAlbum() {
         val photos = listOf(fixture(1, 10), fixture(2, 10), fixture(3, 20))
@@ -103,7 +110,45 @@ class WorkspaceUiTest {
         compose.onNodeWithContentDescription("Redo").assertIsEnabled().performClick()
         screenshot("image-editor")
         compose.onNodeWithText("Save changes").performClick()
-        compose.runOnIdle { requireNotNull(result).validate(); assertTrue(result!!.cropLeft > 0f) }
+        compose.runOnIdle { requireNotNull(result).validate(); assertTrue(requireNotNull(result).cropLeft > 0f) }
+    }
+    @Test fun gifTimelineAndAppearanceEditorLoadWithRealFrames() {
+        val file = File(app.cacheDir, "keepg_qa_animation.gif")
+        file.outputStream().use { stream -> com.yanagikh.keepg.editor.GifEncoder(stream, 128, 96, 0).use { encoder ->
+            repeat(12) { frame -> encoder.frame(IntArray(128 * 96) { pixel ->
+                if (pixel % 128 < 20 + frame * 7) Color.rgb(39, 101, 104) else Color.rgb(215, 235, 247)
+            }, 10) }
+        } }
+        val photo = PhotoEntity(90, android.net.Uri.fromFile(file).toString(), 10, "Demo album", "animation.gif", "image/gif", 0, 128, 96)
+        compose.setContent { MaterialTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ENGLISH) {
+            GifAnimationEditor(photo, {}, {})
+        } } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Save animated copy").fetchSemanticsNodes().any {
+            !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
+        } }
+        compose.onNodeWithText("Save animated copy").assertIsEnabled()
+        screenshot("gif-editor")
+        compose.onNodeWithText("Edit crop, color and layers").performScrollTo().performClick()
+        compose.onNodeWithTag("editing-canvas").assertExists()
+        compose.onNodeWithText("Save changes").performClick()
+        compose.onNodeWithText("GIF animation").assertExists()
+    }
+    @Test fun videoCropGestureSupportsUndoAndLoadedExport() {
+        val file = File(app.cacheDir, "keepg_qa_video.mp4")
+        InstrumentationRegistry.getInstrumentation().context.assets.open("editor-sample.mp4").use { input ->
+            file.outputStream().use { input.copyTo(it) }
+        }
+        val photo = PhotoEntity(91, android.net.Uri.fromFile(file).toString(), 10, "Demo album", "video.mp4", "video/mp4", 0, 160, 120, durationMs = 2000)
+        compose.setContent { MaterialTheme { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.ENGLISH) {
+            ProfessionalVideoEditor(photo, {}, {})
+        } } }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("video-crop").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("video-crop").performTouchInput {
+            swipe(topLeft + androidx.compose.ui.geometry.Offset(3f, 3f), center, 400)
+        }
+        compose.onNodeWithContentDescription("Undo").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Redo").assertIsEnabled().performClick()
+        screenshot("video-editor")
     }
     @Test fun modelPresetsAvailableWithoutNetworkRequests() {
         val agent = AgentViewModel(app)
