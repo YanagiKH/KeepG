@@ -1,0 +1,22 @@
+name: Workspace snapshot
+on:
+  push:
+    branches: ['feature/workspace-agent-0.7']
+    paths: ['.github/workflows/workspace.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked sources only
+        run: git archive --format=tar HEAD > /tmp/keepg-source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keepg-source
+          path: /tmp/keepg-source.tar
+          retention-days: 1
