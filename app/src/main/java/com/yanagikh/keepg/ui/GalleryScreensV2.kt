@@ -1,6 +1,11 @@
 package com.yanagikh.keepg.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -149,7 +154,7 @@ internal fun LibraryScreenV2(
             thumbnailScaleMode = settings.thumbnailScaleMode,
             showMediaBadges = settings.showMediaBadges,
             animationsEnabled = settings.animationsEnabled,
-            onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
+            onPhoto = { photo -> if (selectedIds.isNotEmpty() && isGridMediaVisible(photo, locks, unlocked)) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
             onLongPress = { photo -> onToggleSelection(photo.mediaId) },
             onGridColumns = onGridColumns,
         )
@@ -407,6 +412,8 @@ internal fun PhotoGridV2(
             }
             Box(
                 (if (animationsEnabled) Modifier.animateItem() else Modifier)
+                    .testTag("media-${photo.mediaId}")
+                    .semantics { this.selected = selected }
                     .aspectRatio(aspectRatio)
                     .clip(RoundedCornerShape(8.dp))
                     .clipToBounds()
@@ -520,11 +527,15 @@ internal fun AlbumsScreenV2(
     onRestoreTrash: (List<PhotoEntity>) -> Unit,
     onDeleteTrash: (List<PhotoEntity>) -> Unit,
     allowProtection: Boolean,
+    onClearSelection: () -> Unit,
+    onCollectionSelected: () -> Unit,
+    onProtectSelected: () -> Unit,
+    onAnalyzeSelected: () -> Unit,
 ) {
-    var bucketId by remember { mutableStateOf<Long?>(null) }
-    var collectionId by remember { mutableStateOf<Long?>(null) }
-    var favoritesOpen by remember { mutableStateOf(false) }
-    var trashOpen by remember { mutableStateOf(false) }
+    var bucketId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var collectionId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var favoritesOpen by rememberSaveable { mutableStateOf(false) }
+    var trashOpen by rememberSaveable { mutableStateOf(false) }
     var create by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var albumQuery by remember { mutableStateOf("") }
@@ -536,6 +547,11 @@ internal fun AlbumsScreenV2(
     var renameValue by remember { mutableStateOf("") }
     var pendingCollectionAction by remember { mutableStateOf<Pair<String, CollectionEntity>?>(null) }
     var removeFromCollection by remember { mutableStateOf<Pair<Long, PhotoEntity>?>(null) }
+    var removeSelected by remember { mutableStateOf(false) }
+    BackHandler(selectedIds.isNotEmpty() || bucketId != null || collectionId != null || favoritesOpen || trashOpen) {
+        if (selectedIds.isNotEmpty()) onClearSelection()
+        else { bucketId = null; collectionId = null; favoritesOpen = false; trashOpen = false }
+    }
     val favoritesLabel = tr("Favorites")
     val albumLabel = tr("Album")
     val collectionsLabel = tr("Collections")
@@ -564,6 +580,11 @@ internal fun AlbumsScreenV2(
             }
         }
         val previewScopeIds = remember(filtered) { filtered.map { it.mediaId } }
+        val selectable = filtered.filter { isGridMediaVisible(it, locks, unlocked) }
+        val scopedSelection = selectable.filter { it.mediaId in selectedIds }
+        LaunchedEffect(selectable.map { it.mediaId }, selectedIds) {
+            if (scopedSelection.size != selectedIds.size) onSelectMedia(scopedSelection)
+        }
         val currentTitle = when {
             favoritesOpen -> favoritesLabel
             bucketId != null -> photos.firstOrNull { it.bucketId == bucketId }?.bucketName ?: albumLabel
@@ -571,7 +592,7 @@ internal fun AlbumsScreenV2(
         }
         Column {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ bucketId = null; collectionId = null; favoritesOpen = false }) { Icon(Icons.Default.ArrowBack, tr("Back")) }
+                IconButton({ onClearSelection(); bucketId = null; collectionId = null; favoritesOpen = false }) { Icon(Icons.Default.ArrowBack, tr("Back")) }
                 Text(
                     currentTitle,
                     modifier = Modifier.weight(1f),
@@ -585,6 +606,27 @@ internal fun AlbumsScreenV2(
                     manageCollection = collectionId
                 }) { Icon(Icons.Default.MoreVert, tr("Manage album")) }
             }
+            if (scopedSelection.isNotEmpty()) {
+                SelectionBarV2(
+                    count = scopedSelection.size, fullFeatures = allowProtection,
+                    onClear = onClearSelection, onSelectAll = { onSelectMedia(selectable) },
+                    onFavorite = { onFavoriteMedia(scopedSelection) },
+                    onShare = { onShareMedia(scopedSelection) }, onCollection = onCollectionSelected,
+                    onProtect = onProtectSelected, onVault = { onVaultMedia(scopedSelection) },
+                    onAnalyze = onAnalyzeSelected, onDelete = { onDeleteMedia(scopedSelection) },
+                )
+                if (collectionId != null) TextButton({ removeSelected = true }) { Text(tr("Remove from collection")) }
+            }
+            if (removeSelected) AlertDialog(
+                onDismissRequest = { removeSelected = false },
+                title = { Text(tr("Remove from collection")) },
+                text = { Text(trf("Remove %s selected references? Original files stay on the device.", scopedSelection.size)) },
+                confirmButton = { TextButton({
+                    collectionId?.let { id -> scopedSelection.forEach { onRemoveFromCollection(id, it.mediaId) } }
+                    onClearSelection(); removeSelected = false
+                }) { Text(tr("Remove")) } },
+                dismissButton = { TextButton({ removeSelected = false }) { Text(tr("Cancel")) } },
+            )
             PhotoGridV2(
                 filtered,
                 locks,
@@ -597,11 +639,8 @@ internal fun AlbumsScreenV2(
                 thumbnailScaleMode = settings.thumbnailScaleMode,
                 showMediaBadges = settings.showMediaBadges,
                 animationsEnabled = settings.animationsEnabled,
-                onPhoto = { photo -> if (selectedIds.isNotEmpty()) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
-                onLongPress = { photo ->
-                    collectionId?.let { id -> removeFromCollection = id to photo }
-                        ?: onToggleSelection(photo.mediaId)
-                },
+                onPhoto = { photo -> if (selectedIds.isNotEmpty() && isGridMediaVisible(photo, locks, unlocked)) onToggleSelection(photo.mediaId) else onPhoto(photo, previewScopeIds) },
+                onLongPress = { photo -> if (isGridMediaVisible(photo, locks, unlocked)) onToggleSelection(photo.mediaId) },
                 onGridColumns = onGridColumns,
             )
         }

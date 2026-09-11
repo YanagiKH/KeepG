@@ -1,5 +1,6 @@
 package com.yanagikh.keepg.ui
 
+import com.yanagikh.keepg.agent.AgentEntryButton
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -130,6 +131,7 @@ internal fun MediaPreviewDialogV2(
                         title = { Text(photo.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         navigationIcon = { IconButton(onDismiss) { Icon(Icons.Default.ArrowBack, tr("Back")) } },
                         actions = {
+                            AgentEntryButton()
                             IconButton(onFavorite) { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite")) }
                             IconButton({ showShare = true }) { Icon(Icons.Default.Share, tr("Share")) }
                             Box {
@@ -634,6 +636,7 @@ private fun AdvancedImageEditorDialogV2(
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onDismiss) { Icon(Icons.Default.Close, tr("Close")) }
+                    AgentEntryButton()
                     Text(tr("Image editor"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Button({
                         onApply(

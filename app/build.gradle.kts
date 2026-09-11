@@ -13,8 +13,8 @@ android {
         applicationId = "com.yanagikh.keepg"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 7
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -96,6 +96,9 @@ dependencies {
     implementation("io.coil-kt:coil-gif:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
     implementation("net.lingala.zip4j:zip4j:2.11.5")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.0")
+    implementation("org.yaml:snakeyaml:2.3")
 
     add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
     add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")

@@ -13,6 +13,8 @@ enum class MediaSizeFilter { ANY, SMALL, MEDIUM, LARGE }
 enum class GridLayoutMode { SQUARE, PORTRAIT, ADAPTIVE }
 enum class ThumbnailScaleMode { CROP, FIT }
 enum class PreviewScaleMode { FIT, FILL }
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+enum class ImageExportFormat { PNG, JPEG, WEBP }
 
 data class GallerySettings(
     val videoPreviewAutoPlay: Boolean = true,
@@ -30,6 +32,15 @@ data class GallerySettings(
     val animationsEnabled: Boolean = true,
     val cameraGridEnabled: Boolean = true,
     val cameraAudioEnabled: Boolean = true,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val dynamicColors: Boolean = false,
+    val editorGrid: Boolean = true,
+    val exportQuality: Int = 92,
+    val exportFormat: ImageExportFormat = ImageExportFormat.PNG,
+    val agentEnabled: Boolean = true,
+    val agentAllowTools: Boolean = false,
+    val modelWifiOnly: Boolean = true,
+    val blockScreenshots: Boolean = false,
 )
 
 class GalleryPreferences(context: Context) {
@@ -56,6 +67,18 @@ class GalleryPreferences(context: Context) {
     fun setAnimationsEnabled(value: Boolean) = updateSettings { it.copy(animationsEnabled = value) }
     fun setCameraGridEnabled(value: Boolean) = updateSettings { it.copy(cameraGridEnabled = value) }
     fun setCameraAudioEnabled(value: Boolean) = updateSettings { it.copy(cameraAudioEnabled = value) }
+
+    fun setThemeMode(value: ThemeMode) = updateSettings { it.copy(themeMode = value) }
+    fun setDynamicColors(value: Boolean) = updateSettings { it.copy(dynamicColors = value) }
+    fun setEditorGrid(value: Boolean) = updateSettings { it.copy(editorGrid = value) }
+    fun setExportQuality(value: Int) = updateSettings { it.copy(exportQuality = value.coerceIn(40, 100)) }
+    fun setExportFormat(value: ImageExportFormat) = updateSettings { it.copy(exportFormat = value) }
+    fun setAgentEnabled(value: Boolean) = updateSettings { it.copy(agentEnabled = value) }
+    fun setAgentAllowTools(value: Boolean) = updateSettings { it.copy(agentAllowTools = value) }
+    fun setModelWifiOnly(value: Boolean) = updateSettings { it.copy(modelWifiOnly = value) }
+    fun setBlockScreenshots(value: Boolean) = updateSettings { it.copy(blockScreenshots = value) }
+
+    fun resetAppearance() = updateSettings { it.copy(themeMode = ThemeMode.SYSTEM, dynamicColors = false, gridColumns = 3, gridLayoutMode = GridLayoutMode.SQUARE, thumbnailScaleMode = ThumbnailScaleMode.CROP, previewScaleMode = PreviewScaleMode.FIT, showMediaBadges = true, animationsEnabled = true) }
 
     fun toggleFavorite(mediaId: Long) {
         val next = _favorites.value.toMutableSet().apply { if (!add(mediaId)) remove(mediaId) }
@@ -126,6 +149,15 @@ class GalleryPreferences(context: Context) {
             .putBoolean(KEY_ANIMATIONS, next.animationsEnabled)
             .putBoolean(KEY_CAMERA_GRID, next.cameraGridEnabled)
             .putBoolean(KEY_CAMERA_AUDIO, next.cameraAudioEnabled)
+            .putString("themeMode", next.themeMode.name)
+            .putBoolean("dynamicColors", next.dynamicColors)
+            .putBoolean("editorGrid", next.editorGrid)
+            .putInt("exportQuality", next.exportQuality)
+            .putString("exportFormat", next.exportFormat.name)
+            .putBoolean("agentEnabled", next.agentEnabled)
+            .putBoolean("agentAllowTools", next.agentAllowTools)
+            .putBoolean("modelWifiOnly", next.modelWifiOnly)
+            .putBoolean("blockScreenshots", next.blockScreenshots)
             .apply()
     }
 
@@ -145,6 +177,15 @@ class GalleryPreferences(context: Context) {
         animationsEnabled = prefs.getBoolean(KEY_ANIMATIONS, true),
         cameraGridEnabled = prefs.getBoolean(KEY_CAMERA_GRID, true),
         cameraAudioEnabled = prefs.getBoolean(KEY_CAMERA_AUDIO, true),
+        themeMode = enumValueOrDefault(prefs.getString("themeMode", null), ThemeMode.SYSTEM),
+        dynamicColors = prefs.getBoolean("dynamicColors", false),
+        editorGrid = prefs.getBoolean("editorGrid", true),
+        exportQuality = prefs.getInt("exportQuality", 92).coerceIn(40, 100),
+        exportFormat = enumValueOrDefault(prefs.getString("exportFormat", null), ImageExportFormat.PNG),
+        agentEnabled = prefs.getBoolean("agentEnabled", true),
+        agentAllowTools = prefs.getBoolean("agentAllowTools", false),
+        modelWifiOnly = prefs.getBoolean("modelWifiOnly", true),
+        blockScreenshots = prefs.getBoolean("blockScreenshots", false),
     )
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(raw: String?, fallback: T): T =

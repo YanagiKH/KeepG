@@ -5,6 +5,10 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.view.WindowManager
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import com.yanagikh.keepg.security.DeviceAuthenticator
@@ -21,7 +25,12 @@ class MainActivity : FragmentActivity() {
         viewModel = ViewModelProvider(this, MainViewModelFactory(app.container))[MainViewModel::class.java]
         val startDestination = intent.getStringExtra(KeepGWidgetProvider.EXTRA_START_DESTINATION)
         setContent {
-            KeepGTheme {
+            val settings by viewModel.settings.collectAsStateWithLifecycle()
+            SideEffect {
+                if (settings.blockScreenshots) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            KeepGTheme(settings.themeMode, settings.dynamicColors) {
                 KeepGAppV2(
                     viewModel = viewModel,
                     requestDeviceAuthentication = { title, success, error ->
