@@ -1,0 +1,47 @@
+name: Repair workspace sources
+on:
+  push:
+    branches: [feature/workspace-agent-0.7]
+    paths: [.github/workflows/repair-workspace.yml]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Apply reviewed source corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('app/src/main/java/com/yanagikh/keepg/ui')
+          expected = {
+              'Localization.kt': 'f5c946de91ef229cc74d4869bcf7fc5c5ebdc5c3f9f22b800d8cda5f4822fbe2',
+              'ProfessionalImageEditor.kt': 'd543613773eecba5e3a4ab8fc21af0dd802b77ba565bfd9b11901095767d04ce',
+              'GalleryScreensV2.kt': '05ed2a9165352539adf7179c4c7612f2973f5e4dd4080719c1294845e70cc27d',
+          }
+          for name, digest in expected.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          p = root / 'Localization.kt'
+          text = p.read_text().replace('parseBundle(\n', 'parseBundle(\n        """\n', 1)
+          text = text.replace('        """\n        %s detected faces', '        %s detected faces', 1)
+          p.write_text(text)
+          p = root / 'ProfessionalImageEditor.kt'
+          text = p.read_text().replace('                            if (sourceOverride == null && request.backgroundRemoval == BackgroundRemovalMode.MANUAL) item {', '                            }\n                            if (sourceOverride == null && request.backgroundRemoval == BackgroundRemovalMode.MANUAL) item {', 1)
+          p.write_text(text)
+          p = root / 'GalleryScreensV2.kt'
+          p.write_text(p.read_text().replace('private fun isGridMediaVisible(', 'internal fun isGridMediaVisible(', 1))
+          PY
+          git diff --check
+          python3 scripts/check_localization.py
+          git add app/src/main/java/com/yanagikh/keepg/ui/Localization.kt app/src/main/java/com/yanagikh/keepg/ui/ProfessionalImageEditor.kt app/src/main/java/com/yanagikh/keepg/ui/GalleryScreensV2.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: restore translation literal, editor scope and shared visibility guard'
+          git push origin HEAD:feature/workspace-agent-0.7
