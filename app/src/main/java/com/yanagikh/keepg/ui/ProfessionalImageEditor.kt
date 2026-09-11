@@ -265,6 +265,7 @@ internal fun ProfessionalImageEditor(photo: PhotoEntity, onDismiss: () -> Unit, 
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(BackgroundRemovalMode.NONE to "Keep background", BackgroundRemovalMode.AUTO to "Auto remove", BackgroundRemovalMode.MANUAL to "Manual remove").forEach { (mode, label) -> FilterChip(request.backgroundRemoval == mode, { change(request.copy(backgroundRemoval = mode)) }, { Text(tr(label)) }) }
                             }
+                            }
                             if (sourceOverride == null && request.backgroundRemoval == BackgroundRemovalMode.MANUAL) item { EditorSlider("Background threshold", request.backgroundStrength, .05f.. .95f, { begin(); preview(request.copy(backgroundStrength = it)) }, ::finish) }
                             item { HorizontalDivider(); OutlinedTextField(outputName, { outputName = it.take(100) }, Modifier.fillMaxWidth(), label = { Text(tr("Output name")) }, singleLine = true) }
                             if (sourceOverride == null) item {

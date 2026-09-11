@@ -17,6 +17,7 @@ internal object UiLocalizer {
     private const val ENGLISH = "en"
 
     private val dictionaries: Map<String, Map<String, String>> = parseBundle(
+        """
         AI assistant\tAI 助理\tAIアシスタント\tAI 도우미
         Action rejected: unavailable target, permission or arguments\t操作已拒絕：目標、權限或參數無效\t操作を拒否しました：対象、権限、引数を確認してください\t작업 거부됨: 대상, 권한 또는 인수가 유효하지 않음
         Action requested; review any further confirmation\t已要求操作，請檢閱後續確認\t操作を要求しました。続く確認を確認してください\t작업 요청됨. 추가 확인 내용을 검토하세요
@@ -210,7 +211,6 @@ internal object UiLocalizer {
         White\t白色\t白\t흰색
         Yellow\t黃色\t黄\t노랑
         You\t您\tあなた\t나
-        """
         %s detected faces · heuristic group\t偵測到 %s 張臉孔 · 推測群組\t%s件の顔を検出 · 推定グループ\t얼굴 %s개 감지 · 추정 그룹
         %s items\t%s 個項目\t%s件\t항목 %s개
         %s items · Protected\t%s 個項目 · 已保護\t%s件 · 保護済み\t항목 %s개 · 보호됨

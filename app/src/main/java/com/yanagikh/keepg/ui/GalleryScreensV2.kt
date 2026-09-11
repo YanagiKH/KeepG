@@ -879,7 +879,7 @@ private fun AlbumActionButton(icon: androidx.compose.ui.graphics.vector.ImageVec
     }
 }
 
-private fun isGridMediaVisible(photo: PhotoEntity, locks: List<LockEntity>, unlocked: Set<String>): Boolean {
+internal fun isGridMediaVisible(photo: PhotoEntity, locks: List<LockEntity>, unlocked: Set<String>): Boolean {
     val lock = findLock(photo, locks)
     return lock == null || isUnlocked(lock, unlocked)
 }
