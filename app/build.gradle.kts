@@ -8,7 +8,6 @@ plugins {
 android {
     namespace = "com.yanagikh.keepg"
     compileSdk = 35
-
     defaultConfig {
         applicationId = "com.yanagikh.keepg"
         minSdk = 26
@@ -18,7 +17,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
-
     flavorDimensions += "edition"
     productFlavors {
         create("full") {
@@ -32,7 +30,6 @@ android {
             buildConfigField("boolean", "FULL_FEATURES", "false")
         }
     }
-
     splits {
         abi {
             isEnable = true
@@ -41,16 +38,8 @@ android {
             isUniversalApk = true
         }
     }
-
-    buildFeatures {
-        compose = true
-        buildConfig = true
-    }
-
-    packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
-    }
-
+    buildFeatures { compose = true; buildConfig = true }
+    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     testOptions { unitTests.isIncludeAndroidResources = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -59,9 +48,7 @@ android {
     lint { abortOnError = true; warningsAsErrors = false }
 }
 
-kotlin {
-    compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
-}
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
@@ -79,9 +66,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.8.4")
+    implementation("androidx.room:room-ktx:2.8.4")
+    ksp("androidx.room:room-compiler:2.8.4")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.media3:media3-exoplayer:1.6.1")
@@ -104,14 +91,12 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.0")
     implementation("org.yaml:snakeyaml:2.3")
-
     add("fullImplementation", "com.google.mlkit:barcode-scanning:17.3.0")
     add("fullImplementation", "com.google.mlkit:text-recognition:16.0.1")
     add("fullImplementation", "com.google.mlkit:text-recognition-chinese:16.0.1")
     add("fullImplementation", "com.google.mlkit:text-recognition-japanese:16.0.1")
     add("fullImplementation", "com.google.mlkit:text-recognition-korean:16.0.1")
     add("fullImplementation", "com.google.mlkit:segmentation-selfie:16.0.0-beta6")
-
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
