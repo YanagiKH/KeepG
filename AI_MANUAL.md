@@ -1,0 +1,52 @@
+# KeepG AI 使用與安全手冊
+
+## 開始使用
+
+在相簿、預覽、編輯器或相機按星光圖示開啟 AI。設定 → AI 助理可關閉捷徑、設定不計量下載，或啟用「操作建議」。這些開關不會授予 Android 權限。
+
+「模型」提供 **Gemma 4 E2B-it（輕量）** 和 **Gemma 4 E4B-it（普通）** 的 LiteRT-LM 相容版本。按預設按鈕後，先閱讀發布者、模型授權、檔案大小、修訂與 SHA-256，再確認下載。預設等候不計量網路；可取消，重試同一固定版本可續傳。下載完成後選取模型，回到「對話」輸入訊息。模型不隨 APK 打包，也不會未經確認下載數 GB 檔案。
+
+預設 CPU 文字推論；需要 **64 位元裝置**，可用記憶體須足以載入模型和上下文。E2B/E4B 是模型級別，不是 RAM 保證。較大型模型、GPU 驅動和視覺支援因裝置而異；載入失敗請關閉視覺/GPU、改用較小模型，並參閱除錯手冊。x86_64 模擬器的 UI 測試不能替代 ARM64 手機上的完整模型推論驗證。
+
+## 搜尋、匯入與移除模型
+
+內建 Hugging Face 搜尋會列出儲存庫，點入後只列出 `.litertlm` 檔案。下載鎖定 commit revision，驗證 LFS SHA-256 與完整大小，再原子提交到 App 私有目錄。匯入也接受可信 `.litertlm`，但匯入檔無遠端校驗來源：引擎載入時才檢查相容性。**GGUF、Safetensors、ONNX 或硬體專用權重不會自動轉換**。
+
+受限儲存庫需先在 Hugging Face 接受模型授權，再提供最小權限 read token。權杖透過 Android Keystore 加密，不寫入聊天或日誌，也不轉送到 CDN 下載轉址。可隨時移除權杖及已安裝模型。KeepG 沒有雲端聊天後端。
+
+## 附件與對話限制
+
+每輪最多四個附件，每個最多 16 MiB，透過 Android 文件選擇器授權。文字只取有限片段。視覺需手動啟用並搭配相容 GPU 模型：圖片會縮小、PDF 最多前兩頁、影片最多兩個關鍵影格；動畫輸入為靜態影格。其他二進位檔和音訊只提供檔名、大小、型態等中繼資料，**不是任意檔案都能完整理解，也不是完整影片/音訊分析**。模型會收到這些限制，不應聲稱讀取未提供的内容。
+
+聊天只存在 RAM，最多保留 60 則顯示記錄；每次只帶入最近六則截短訊息、有限技能文字及可選中繼資料。輸出最多 1024 tokens，上下文配置 8192 tokens。清除聊天、背景切換、锁定狀態或操作權限改變會使既有操作建議失效；背景返回不代表被取消的推論會繼續。未啟用「本輪提供可見媒體中繼資料」時，不主動傳入媒體目錄。
+
+## Skills 是指令，不是模型或外掛程式
+
+「技能」→ 匯入 `SKILL.md` 或只含一個技能的 ZIP → 檢閱原文 → 安裝（預設停用）→ 手動啟用。最多同時取四個已啟用技能的有限內容。範例見 [album-organizer](skills/album-organizer/SKILL.md)。
+
+Markdown 限 64 KiB、ZIP 限 2 MiB；拒絕路徑穿越、絕對路徑、多份 SKILL.md、不安全 YAML 和重複 frontmatter 欄位。**不執行 scripts、shell、Python、JavaScript 或附帶執行檔，不安裝原生程式碼**。含外部工具、任意指令或完整 Agent Skills 生態執行環境的套件並非本版支援範圍。
+
+```markdown
+---
+name: album-organizer
+description: Help review selected media and propose a collection.
+---
+先詢問整理目的。僅使用使用者本輪提供且可見的媒體 ID。
+提出收藏集建議，不宣稱已執行，不要求繞過密碼，不刪除原始檔。
+```
+
+## 相簿操作與確認
+
+設定啟用操作建議後，AI 可提出導覽、搜尋、選取、最愛、分享、刪除、保護、保險庫、分析、開啟、重新命名、修復、有限編輯預設、收藏集管理、重新整理、相機、OCR 索引及部分設定變更。**不是任意程式執行，也不是無人監督控制所有介面**；精細編輯仍在互動編輯器完成。
+
+每個 JSON 建議只解析白名單動作與欄位，媒體 ID 必須在本輪授權的可見集合。按「檢閱操作」檢查檔名與範圍，按「繼續執行」後再次驗證鎖定與權限，再進入原本的密碼、Android 刪除或分享確認。一次確認不能重播。拒絕建議不會執行操作；模型文字不是成功回報。收藏集新增/移除是參照變更，不會刪除裝置原檔。
+
+附件、檔名和 Skill 可能包含提示注入，始終視為不可信資料。勿因模型要求而提供密碼或解鎖無關媒體。模型檔本身由原生引擎載入，不是安全沙箱；只使用可信來源並保持更新。
+
+## 官方參考
+
+- [LiteRT-LM Kotlin API](https://github.com/google-ai-edge/LiteRT-LM/blob/v0.16.0/docs/api/kotlin/getting_started.md)
+- [Gemma 4 on LiteRT-LM](https://ai.google.dev/edge/litert-lm/models/gemma-4)
+- [E2B Android model](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+- [E4B Android model](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
+- [Agent Skills specification](https://agentskills.io/specification)

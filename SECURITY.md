@@ -69,7 +69,7 @@ Automated GitHub prerelease APKs are Android debug-key signed for installation/t
 - Plaintext disclosure of Vault copies from app-private storage.
 - Direct recovery of KeepG passwords from stored password strings; plaintext passwords are not stored.
 - Normal Android cloud backup of KeepG's database and Vault directory.
-- Accidental app-level network upload by the current classifier/editor; the app has no Internet permission.
+- Accidental app-level network upload by the current classifier/editor; local processing does not upload media; model downloads use Internet permission (see the 0.7 boundaries below).
 - Destructive source overwrite by editor/repair operations; results are written as new copies.
 - Arbitrary URI-scheme launching from detected QR/text values; only HTTP(S) is exposed.
 
@@ -104,3 +104,13 @@ The Vault key is tied to Android Keystore. Uninstalling KeepG normally removes i
 ## Reporting a vulnerability
 
 Do not post exploit details for an unpatched vulnerability in a public issue. Contact the repository owner privately through an available GitHub security reporting channel when enabled. Include the affected commit, Android version/device, reproduction steps, impact, and safe proof-of-concept data.
+
+## 0.7 local AI and editor boundaries
+
+KeepG now requests `INTERNET` and network-state/foreground-download permissions for explicitly requested Hugging Face model discovery and downloads. It is no longer accurate to describe this version as having no Internet permission. There is no cloud inference or media-upload endpoint in the AI implementation. Browser/model-card links and explicit Android sharing leave the app and follow the chosen app's privacy policy.
+
+Models are pinned to a revision and verified by SHA-256 and length before atomic installation. HF read tokens are encrypted using an Android Keystore key and are never forwarded to download redirects. Native model parsing still constitutes a trust boundary; a checksum proves object integrity, not publisher trust or absence of engine vulnerabilities.
+
+Skills are disabled-by-default Markdown instructions. ZIP traversal, unsafe YAML and oversized files are rejected. No bundled scripts or executables run. Model-proposed actions pass a whitelist, current visible-ID authorization, one-use UI review, fresh lock checks and existing Android/password confirmations. Turning off tools, changing locks, clearing chat or backgrounding invalidates pending proposals and clears sensitive in-memory context. See [AI_MANUAL.md](AI_MANUAL.md).
+
+GIF decode bounds are checked before native allocation. Image/GIF/video output is written as a new file with rollback of incomplete MediaStore entries. Exports are not automatically locked or encrypted. Model downloads and video export can consume substantial disk space; cancellation does not promise immediate interruption of every OEM/native call. Screen capture blocking is optional and applies to KeepG windows, not other applications.

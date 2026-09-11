@@ -721,7 +721,12 @@ internal fun AlbumsScreenV2(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(trf("%s items", media.size), style = MaterialTheme.typography.bodySmall)
-                    AlbumActionButton(Icons.Default.SelectAll, tr("Select all")) { onSelectMedia(media); manageMedia = null }
+                    AlbumActionButton(Icons.Default.SelectAll, tr("Select all")) {
+                        bucketId = bucket; collectionId = collection?.id
+                        favoritesOpen = bucket == null && collection == null
+                        onSelectMedia(media.filter { isGridMediaVisible(it, locks, unlocked) })
+                        manageMedia = null; manageBucket = null; manageCollection = null
+                    }
                     AlbumActionButton(Icons.Default.Favorite, tr("Favorite all")) { onFavoriteMedia(media); manageMedia = null }
                     AlbumActionButton(Icons.Default.Share, tr("Share")) { onShareMedia(media); manageMedia = null }
                     if (collection != null) {

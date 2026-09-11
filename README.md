@@ -9,9 +9,21 @@
 <p align="center">
   <a href="../../actions/workflows/android.yml"><img alt="Android CI" src="https://github.com/YanagiKH/KeepG/actions/workflows/android.yml/badge.svg" /></a>
   <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" />
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white" />
-  <img alt="No Internet permission" src="https://img.shields.io/badge/Internet_permission-none-0F766E" />
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.3-7F52FF?logo=kotlin&logoColor=white" />
+  <img alt="Local inference" src="https://img.shields.io/badge/AI-local_inference-0F766E" />
 </p>
+
+## 0.7 更新：設定、編輯、AI 與相簿內多選
+
+設定依 **外觀 / 瀏覽 / 編輯 / AI 助理 / 安全 / 維護** 分類，可用目前語言跨分類搜尋。新增主題、動態配色、匯出預設、輔助線、AI 捷徑、下載策略、畫面保護與維護操作。介面支援繁體中文、English、日本語、한국어；CI 檢查字串覆蓋與格式參數。
+
+Full 的圖片、GIF 與影片編輯採明確手勢模式、精準範圍與另存副本。開啟特定相簿或收藏集後長按多選，原本批次操作列直接留在該範圍；全選不跨相簿，清除選取不離開相簿。
+
+兩個版本都提供本機 AI 對話入口、Gemma 4 E2B-it / E4B-it 安裝預設、Hugging Face 搜尋與相容 `.litertlm` 匯入、受限附件內容與停用預設的 Skills。實際模型需使用者確認下載，64 位元及足夠記憶體；GPU/視覺依模型和裝置相容性。AI 僅提出白名單操作，不能繞過密碼、鎖定或系統確認。Lite 保留原本進階編輯/安全/智慧功能限制。
+
+**手冊：** [編輯與多選](docs/EDITING.md) · [AI 使用/Skills/安全邊界](AI_MANUAL.md) · [安全](SECURITY.md) · [除錯與測試](DEBUGGING.md) · [隱私](PRIVACY.md)
+
+新的真實介面示範由 `WorkspaceUiTest` 使用合成測試素材擷取；每次 CI 的 `keepg-device-api-26/35` artifact 可下載 PNG 與裝置測試報告。下方既有 SVG 明確標為示意，不冒充實機截圖。測試通過不等於所有手機的推論、編碼與效能已驗證。
 
 ## What KeepG is
 
@@ -101,12 +113,11 @@ Image editing writes a new result under `Pictures/KeepG`; it does not overwrite 
 - adjustable manual corner-color background removal;
 - GIF first-frame extraction to alpha-capable PNG.
 
-Video editing writes a new MP4 under `Movies/KeepG` using Android `MediaExtractor`/`MediaMuxer`:
+The 0.7 image workspace adds explicit image/crop/layer gesture modes, 40-entry gesture-aware undo/redo, layer styling/order, precise crop bounds, flips, export size and PNG/JPEG/WebP output controls.
 
-- trim to an arbitrary range with draggable handles;
-- optionally remove audio tracks.
+GIF editing offers a separate animated pipeline: trim, speed, frame rate, reverse, loop count, frame-wide crop/color/text and bounded 256-color output (30 seconds / 360 frames / 640px maximum). Single-frame editing remains an explicit separate choice.
 
-Video operations remux rather than transcode. A codec can be playable on a device yet be incompatible with MP4 remuxing; KeepG reports that case and leaves the original untouched. Animated GIF re-encoding is not claimed: the explicit GIF action extracts the first decoded frame.
+The new video workspace uses Media3 Transformer to create H.264/AAC MP4 copies with precise time bounds, draggable crop, rotation, flips, speed, mute and output-height choices. Preview and encoder support are device-dependent; export can be cancelled without overwriting the source. See [the editing guide](docs/EDITING.md).
 
 ## On-device OCR, QR, and URL detection (Full)
 
@@ -185,7 +196,7 @@ MainViewModel
 
 ## Security model
 
-KeepG has no app Internet permission. Security-relevant behavior is documented in [`SECURITY.md`](SECURITY.md), including authentication modes, PBKDF2 parameters, AES-GCM Vault format, Android Keystore use, face metadata privacy, threat boundaries and key-loss behavior.
+KeepG uses Internet permission for explicit model discovery/downloads; AI inference is local. Security-relevant behavior is documented in [`SECURITY.md`](SECURITY.md), including authentication modes, PBKDF2 parameters, AES-GCM Vault format, Android Keystore use, face metadata privacy, threat boundaries and key-loss behavior.
 
 ## Development setup
 
@@ -236,8 +247,8 @@ There is intentionally no `INTERNET` permission.
 ## Current limitations
 
 - Actual codec support varies by Android version/OEM despite KeepG recognizing a broad extension set.
-- GIF animation is viewable where the decoder supports it, but the current editor exports a selected first-frame PNG rather than re-encoding animated GIF frames.
-- Video edit operations are lossless remux operations; incompatible source tracks require a future transcoding path.
+- Animated GIF export is bounded and palette-quantized; transparency is flattened to white.
+- Video export depends on the device decoder/encoder and is not a professional unlimited timeline or lossless transcode.
 - Automatic background removal uses ML Kit Selfie Segmentation, which Google currently documents as beta.
 - Person grouping uses a lightweight local descriptor and is not biometric verification.
 - Vault creation does not silently delete the original MediaStore item.
@@ -245,7 +256,7 @@ There is intentionally no `INTERNET` permission.
 
 ## Privacy
 
-See [`PRIVACY.md`](PRIVACY.md). KeepG is accountless, has no app Internet permission, stores organization metadata locally, and treats local face descriptors as sensitive data.
+See [`PRIVACY.md`](PRIVACY.md). KeepG is accountless, uses network access for requested model downloads, stores organization metadata locally, and treats local face descriptors as sensitive data.
 
 ## Verification philosophy
 

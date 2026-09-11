@@ -89,6 +89,16 @@ fun KeepGAppV2(
     val mediaTextIndexCount by viewModel.mediaTextIndexCount.collectAsStateWithLifecycle()
     val fullFeatures = viewModel.fullFeatures
 
+    LaunchedEffect(locks, unlocked, settings.agentEnabled, settings.agentAllowTools) { agent.invalidate() }
+    val agentLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(agentLifecycle, agent) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) agent.invalidate(close = false)
+        }
+        agentLifecycle.lifecycle.addObserver(observer)
+        onDispose { agentLifecycle.lifecycle.removeObserver(observer) }
+    }
+
     CompositionLocalProvider(LocalAppLanguage provides settings.language, LocalAgentLauncher provides if (settings.agentEnabled) ({ agent.open() }) else null) {
         fun localized(key: String): String = UiLocalizer.text(settings.language, key)
         fun localizedFormat(key: String, vararg args: Any): String = String.format(Locale.ROOT, localized(key), *args)

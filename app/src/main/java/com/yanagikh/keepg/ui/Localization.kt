@@ -17,6 +17,199 @@ internal object UiLocalizer {
     private const val ENGLISH = "en"
 
     private val dictionaries: Map<String, Map<String, String>> = parseBundle(
+        AI assistant\tAI 助理\tAIアシスタント\tAI 도우미
+        Action rejected: unavailable target, permission or arguments\t操作已拒絕：目標、權限或參數無效\t操作を拒否しました：対象、権限、引数を確認してください\t작업 거부됨: 대상, 권한 또는 인수가 유효하지 않음
+        Action requested; review any further confirmation\t已要求操作，請檢閱後續確認\t操作を要求しました。続く確認を確認してください\t작업 요청됨. 추가 확인 내용을 검토하세요
+        Allow action proposals\t允許提出操作建議\t操作の提案を許可\t작업 제안 허용
+        Attach files\t附加檔案\tファイルを添付\t파일 첨부
+        Block screenshots\t禁止螢幕擷取\t画面の撮影を禁止\t화면 캡처 차단
+        Bold\t粗體\t太字\t굵게
+        CPU text mode is the default. Vision needs a compatible model and GPU; disable it when loading fails.\t預設使用 CPU 文字模式。視覺需要相容模型與 GPU；載入失敗時請停用。\t標準はCPUテキストモードです。画像認識には対応モデルとGPUが必要です。読み込みに失敗したら無効にしてください。\t기본은 CPU 텍스트 모드입니다. 시각 기능에는 호환 모델과 GPU가 필요하며 로드에 실패하면 끄세요.
+        Cancel export\t取消匯出\t書き出しを中止\t내보내기 취소
+        Clear chat\t清除對話\t会話を消去\t대화 지우기
+        Clear image text index\t清除圖片文字索引\t画像の文字索引を消去\t이미지 텍스트 색인 지우기
+        Clear thumbnail cache\t清除縮圖快取\tサムネイルキャッシュを消去\t미리 보기 캐시 지우기
+        Collection ID: %s\t收藏集 ID：%s\tコレクションID：%s\t컬렉션 ID: %s
+        Compatible model file not found\t找不到相容的模型檔案\t対応するモデルファイルが見つかりません\t호환 모델 파일을 찾을 수 없음
+        Continue to action\t繼續執行操作\t操作に進む\t작업 계속
+        Default export format\t預設匯出格式\t標準の書き出し形式\t기본 내보내기 형식
+        Delete model\t刪除模型\tモデルを削除\t모델 삭제
+        Delete skill\t刪除技能\tスキルを削除\t스킬 삭제
+        Download\t下載\tダウンロード\t다운로드
+        Drag corners to resize the crop; drag inside to move it. Preview playback applies crop, rotation and speed.\t拖曳四角調整裁切，拖曳內部移動範圍。預覽播放會套用裁切、旋轉與速度。\t角をドラッグして切り抜きを調整し、内側をドラッグして移動します。再生プレビューには切り抜き、回転、速度が反映されます。\t모서리를 끌어 자르기 크기를 조절하고 안쪽을 끌어 이동하세요. 재생 미리 보기에 자르기, 회전, 속도가 적용됩니다.
+        Drag the timeline handles to trim. Appearance edits apply to every frame.\t拖曳時間軸把手修剪範圍。外觀編輯會套用至每個影格。\tタイムラインのハンドルで範囲を指定します。外観の編集は全フレームに適用されます。\t타임라인 핸들을 끌어 구간을 자르세요. 모양 편집은 모든 프레임에 적용됩니다.
+        Dynamic colors\t動態配色\tダイナミックカラー\t동적 색상
+        Edit animation\t編輯動畫\tアニメーションを編集\t애니메이션 편집
+        Edit crop, color and layers\t編輯裁切、色彩與圖層\t切り抜き・色・レイヤーを編集\t자르기, 색상, 레이어 편집
+        Edit layer text\t編輯圖層文字\tレイヤーの文字を編集\t레이어 텍스트 편집
+        Edit single frame\t編輯單一影格\t1フレームを編集\t단일 프레임 편집
+        Edit the full animation or extract and edit a single still frame. The original GIF is preserved.\t編輯完整動畫，或擷取單張靜態影格編輯。原始 GIF 會保留。\tアニメーション全体、または静止画1フレームを編集します。元のGIFは保持されます。\t전체 애니메이션을 편집하거나 정지 프레임 하나를 추출해 편집하세요. 원본 GIF는 보존됩니다.
+        Editing canvas\t編輯畫布\t編集キャンバス\t편집 캔버스
+        Editor guides\t編輯輔助線\t編集ガイド\t편집 안내선
+        Enable vision for compatible models\t為相容模型啟用視覺\t対応モデルの画像認識を有効化\t호환 모델의 시각 기능 켜기
+        Enabled\t已啟用\t有効\t활성화됨
+        End (ms)\t結束（毫秒）\t終了（ミリ秒）\t종료(밀리초)
+        Every action requires review. Passwords and Android confirmations still apply.\t每項操作都需檢閱，仍須通過密碼與 Android 確認。\tすべての操作に確認が必要です。パスワードとAndroidの確認も適用されます。\t모든 작업은 검토가 필요합니다. 비밀번호와 Android 확인도 적용됩니다.
+        Export quality: %s\t匯出品質：%s\t書き出し品質：%s\t내보내기 품질: %s
+        Flip horizontal\t水平翻轉\t左右反転\t좌우 뒤집기
+        Flip vertical\t垂直翻轉\t上下反転\t상하 뒤집기
+        GIF animation\tGIF 動畫\tGIFアニメーション\tGIF 애니메이션
+        GIF editor\tGIF 編輯器\tGIFエディター\tGIF 편집기
+        GIF export is limited to 30 seconds and 360 frames. Palette quantization reduces colors; transparency is flattened onto white.\tGIF 匯出限 30 秒、360 影格。調色盤量化會減少色彩；透明區域會填為白色。\tGIFの書き出しは30秒・360フレームまでです。パレット量子化で色数を減らし、透明部分を白にします。\tGIF 내보내기는 30초, 360프레임까지입니다. 팔레트 양자화로 색상이 줄고 투명 영역은 흰색으로 채워집니다.
+        Hide KeepG from screen captures and the recent-apps preview.\t在螢幕擷取及最近使用的應用程式預覽中隱藏 KeepG。\tスクリーンショットと最近使ったアプリのプレビューでKeepGを非表示にします。\t화면 캡처와 최근 앱 미리 보기에서 KeepG를 숨깁니다.
+        Hugging Face read token\tHugging Face 讀取權杖\tHugging Face読み取りトークン\tHugging Face 읽기 토큰
+        Image preview could not be prepared\t無法準備圖片預覽\t画像プレビューを準備できません\t이미지 미리 보기를 준비할 수 없음
+        Import\t匯入\t読み込む\t가져오기
+        Import SKILL.md or a ZIP containing one skill. Scripts and bundled executables are never run. Review instructions before enabling.\t匯入 SKILL.md 或包含單一技能的 ZIP。不執行腳本與附帶的執行檔，啟用前請先檢閱指令。\tSKILL.mdまたは1つのスキルを含むZIPを読み込みます。スクリプトや実行ファイルは実行しません。有効にする前に指示を確認してください。\tSKILL.md 또는 스킬 하나가 담긴 ZIP을 가져오세요. 스크립트나 실행 파일은 실행하지 않습니다. 활성화 전에 지침을 검토하세요.
+        Import model\t匯入模型\tモデルを読み込む\t모델 가져오기
+        Import skill\t匯入技能\tスキルを読み込む\t스킬 가져오기
+        Inference options\t推論選項\t推論の設定\t추론 옵션
+        Install and select a model first\t請先安裝並選取模型\t先にモデルをインストールして選択してください\t먼저 모델을 설치하고 선택하세요
+        Install disabled\t安裝並保持停用\t無効の状態でインストール\t비활성 상태로 설치
+        Install model\t安裝模型\tモデルをインストール\t모델 설치
+        Install trusted .litertlm files only. Safetensors, GGUF and hardware-specific models are not interchangeable. Downloads may be several GB.\t僅安裝可信的 .litertlm 檔案。Safetensors、GGUF 與硬體專用模型不能互換；下載可能需要數 GB。\t信頼できる.litertlmのみをインストールしてください。Safetensors、GGUF、ハードウェア専用モデルは互換ではありません。数GBの容量が必要な場合があります。\t신뢰할 수 있는 .litertlm만 설치하세요. Safetensors, GGUF, 하드웨어 전용 모델은 서로 호환되지 않습니다. 다운로드에 수 GB가 필요할 수 있습니다.
+        Installing does not grant permissions. Enable this skill separately; every action still needs approval.\t安裝不會授予權限。請另行啟用技能；每項操作仍需批准。\tインストールしても権限は付与されません。スキルは別途有効化し、各操作を承認してください。\t설치해도 권한이 부여되지 않습니다. 스킬은 별도로 켜야 하며 모든 작업은 승인이 필요합니다.
+        Invalid or unsafe skill file\t技能檔案無效或不安全\t無効または安全でないスキルファイル\t유효하지 않거나 안전하지 않은 스킬 파일
+        KeepG writes a new H.264/AAC MP4. Export requires a compatible device encoder and may take longer than playback.\tKeepG 會建立新的 H.264／AAC MP4。匯出需要相容的裝置編碼器，可能比播放時間更久。\t新しいH.264/AAC MP4を書き出します。対応エンコーダーが必要で、再生時間より長くかかる場合があります。\t새 H.264/AAC MP4를 만듭니다. 호환 기기 인코더가 필요하며 재생 시간보다 오래 걸릴 수 있습니다.
+        Loading model and generating…\t正在載入模型並產生回覆…\tモデルを読み込んで生成中…\t모델 로드 및 생성 중…
+        Local AI requires a 64-bit device\t本機 AI 需要 64 位元裝置\tローカルAIには64ビット端末が必要です\t로컬 AI에는 64비트 기기가 필요합니다
+        Local chat. Your media is not uploaded. Model answers can be wrong.\t本機對話，不上傳媒體。模型回答可能有誤。\t端末内で会話し、メディアは送信しません。回答が誤る場合があります。\t로컬 대화이며 미디어를 업로드하지 않습니다. 모델의 답변이 틀릴 수 있습니다.
+        Loop forever\t無限循環\t無限に繰り返す\t무한 반복
+        Maximum output edge\t最大輸出邊長\t出力の最大辺\t최대 출력 변 길이
+        Message\t訊息\tメッセージ\t메시지
+        Models and skills\t模型與技能\tモデルとスキル\t모델과 스킬
+        Move layer backward\t圖層下移\tレイヤーを背面へ\t레이어 뒤로 이동
+        Move layer forward\t圖層上移\tレイヤーを前面へ\t레이어 앞으로 이동
+        New downloads wait for an unmetered connection. Models can require several GB.\t新下載會等待不計量連線。模型可能需要數 GB。\t新規ダウンロードは従量制でない接続を待ちます。モデルには数GB必要な場合があります。\t새 다운로드는 데이터 무제한 연결을 기다립니다. 모델에 수 GB가 필요할 수 있습니다.
+        Only import a trusted .litertlm model. The engine validates compatibility when it loads.\t僅匯入可信的 .litertlm 模型，引擎載入時會驗證相容性。\t信頼できる.litertlmモデルのみ読み込んでください。読み込み時に互換性を確認します。\t신뢰할 수 있는 .litertlm 모델만 가져오세요. 로드 시 엔진이 호환성을 확인합니다.
+        Only visual preferences are reset. Media, passwords, models and collections are kept.\t僅重設視覺偏好，保留媒體、密碼、模型及收藏集。\t表示設定のみリセットし、メディア、パスワード、モデル、コレクションは保持します。\t화면 설정만 초기화합니다. 미디어, 비밀번호, 모델, 컬렉션은 유지됩니다.
+        Open local chat from the gallery, preview, editor or camera.\t可從相簿、預覽、編輯器或相機開啟本機對話。\tギャラリー、プレビュー、エディター、カメラからローカル会話を開けます。\t갤러리, 미리 보기, 편집기, 카메라에서 로컬 대화를 여세요.
+        Open model card\t開啟模型說明頁\tモデルカードを開く\t모델 설명 열기
+        Optional for gated models. Stored with Android Keystore encryption. Never sent to download redirects.\t受限模型可選填。以 Android Keystore 加密儲存，不會傳送至下載轉址站。\t制限付きモデル用の任意設定です。Android Keystoreで暗号化し、リダイレクト先には送信しません。\t접근 제한 모델용 선택 항목입니다. Android Keystore로 암호화하며 다운로드 리디렉션에는 보내지 않습니다.
+        Original files are never overwritten. JPEG uses a white background for transparent areas.\t不覆寫原檔。JPEG 的透明區域使用白底。\t元のファイルは上書きしません。JPEGの透明部分は白になります。\t원본은 덮어쓰지 않습니다. JPEG의 투명 영역은 흰색 배경을 사용합니다.
+        Output height\t輸出高度\t出力の高さ\t출력 높이
+        PNG preserves transparency. JPEG uses a white background; its quality slider affects file size.\tPNG 保留透明度。JPEG 使用白底，品質滑桿會影響檔案大小。\tPNGは透明度を保持します。JPEGは白背景で、品質スライダーがファイル容量に影響します。\tPNG는 투명도를 유지합니다. JPEG는 흰색 배경이며 품질 슬라이더가 파일 크기에 영향을 줍니다.
+        Preview position\t預覽位置\tプレビュー位置\t미리 보기 위치
+        Redo\t重做\tやり直す\t다시 실행
+        Reject\t拒絕\t拒否\t거부
+        Remove %s selected references? Original files stay on the device.\t移除 %s 個已選參照？原始檔仍保留在裝置。\t選択した%s件の参照を外しますか？元のファイルは端末に残ります。\t선택한 참조 %s개를 제거할까요? 원본 파일은 기기에 남습니다.
+        Remove attachment\t移除附件\t添付を削除\t첨부 제거
+        Remove token\t移除權杖\tトークンを削除\t토큰 제거
+        Reset\t重設\tリセット\t초기화
+        Reset all edits\t重設所有編輯\tすべての編集をリセット\t모든 편집 초기화
+        Reset appearance\t重設外觀\t外観をリセット\t모양 초기화
+        Reset crop\t重設裁切\t切り抜きをリセット\t자르기 초기화
+        Reverse frames\t反向影格\tフレームを逆順にする\t프레임 역순
+        Review\t檢閱\t確認\t검토
+        Review action\t檢閱操作\t操作を確認\t작업 검토
+        Review every target. Deletion, sharing and protection still require the existing confirmation steps.\t請檢閱每個目標。刪除、分享和保護仍需原本的確認步驟。\t各対象を確認してください。削除、共有、保護には従来の確認手順が必要です。\t모든 대상을 검토하세요. 삭제, 공유, 보호에는 기존 확인 절차가 필요합니다.
+        Review the repository license and trust the publisher before installing. This is a native model file, not an Agent Skill.\t安裝前請檢閱儲存庫授權並確認發布者可信。這是原生模型檔，不是 Agent Skill。\tライセンスと配布元を確認してからインストールしてください。これはネイティブモデルファイルで、Agent Skillではありません。\t설치 전 저장소 라이선스와 게시자를 확인하세요. 네이티브 모델 파일이며 Agent Skill이 아닙니다.
+        Revision\t版本修訂\tリビジョン\t리비전
+        Save animated copy\t儲存動畫副本\tアニメーションのコピーを保存\t애니메이션 복사본 저장
+        Save edited copy\t儲存編輯副本\t編集したコピーを保存\t편집된 복사본 저장
+        Search\t搜尋\t検索\t검색
+        Search Hugging Face\t搜尋 Hugging Face\tHugging Faceを検索\tHugging Face 검색
+        Search settings\t搜尋設定\t設定を検索\t설정 검색
+        Send\t傳送\t送信\t보내기
+        Shadow\t陰影\t影\t그림자
+        Share visible media metadata for this chat turn\t本輪對話提供可見媒體的中繼資料\t今回の会話に表示中のメタデータを提供\t이번 대화에 표시 중인 미디어 메타데이터 제공
+        Show AI shortcut\t顯示 AI 捷徑\tAIショートカットを表示\tAI 바로가기 표시
+        Show thirds and center guides while cropping.\t裁切時顯示三分線與中央輔助線。\t切り抜き時に三分割線と中央ガイドを表示します。\t자르기 중 삼분할선과 중앙 안내선을 표시합니다.
+        Snap to grid\t貼齊格線\tグリッドに合わせる\t격자에 맞추기
+        Start (ms)\t開始（毫秒）\t開始（ミリ秒）\t시작(밀리초)
+        Stop generation\t停止生成\t生成を停止\t생성 중지
+        Temperature: %s\t溫度：%s\t温度：%s\t온도: %s
+        Text is excerpted. Vision reads reduced images, two PDF pages or two video frames. Other files are metadata-only.\t文字會截取摘要範圍。視覺只讀取縮小圖片、兩頁 PDF 或兩個影片影格，其他檔案僅提供中繼資料。\t文字は一部を抜粋します。画像認識は縮小画像、PDFの2ページ、動画の2フレームのみです。その他はメタデータのみ提供します。\t텍스트는 일부 발췌합니다. 시각 기능은 축소 이미지, PDF 두 페이지 또는 영상 두 프레임만 읽습니다. 그 외 파일은 메타데이터만 제공합니다.
+        Theme\t主題\tテーマ\t테마
+        This editor saves one still frame. Use GIF animation to preserve motion.\t此編輯器儲存單張靜態影格。請使用 GIF 動畫保留動態。\tこのエディターは静止画1フレームを保存します。動きを保つにはGIFアニメーションを使用してください。\t이 편집기는 정지 프레임 하나를 저장합니다. 움직임을 유지하려면 GIF 애니메이션을 사용하세요.
+        Trim range\t修剪範圍\tトリミング範囲\t잘라내기 범위
+        Unable to install model\t無法安裝模型\tモデルをインストールできません\t모델을 설치할 수 없음
+        Unable to read attachment\t無法讀取附件\t添付を読み取れません\t첨부 파일을 읽을 수 없음
+        Unavailable media\t媒體無法使用\t利用できないメディア\t사용할 수 없는 미디어
+        Undo\t復原\t元に戻す\t실행 취소
+        Unmetered model downloads\t模型僅限不計量網路下載\t従量制でない接続でモデルを取得\t모델 다운로드에 데이터 무제한 연결만 사용
+        Use GPU\t使用 GPU\tGPUを使用\tGPU 사용
+        Use wallpaper colors on Android 12 or newer.\t在 Android 12 以上使用桌布配色。\tAndroid 12以降で壁紙の色を使用します。\tAndroid 12 이상에서 배경화면 색상을 사용합니다.
+        Video preview unavailable\t無法預覽影片\t動画プレビューを利用できません\t동영상 미리 보기를 사용할 수 없음
+        Waiting for an allowed network or worker slot\t正在等待允許的網路或工作排程\t許可された接続または処理枠を待機中\t허용된 네트워크 또는 작업 슬롯을 기다리는 중
+        About KeepG\t關於 KeepG\tKeepGについて\tKeepG 정보
+        Access token\t存取權杖\tアクセストークン\t액세스 토큰
+        Appearance\t外觀\t外観\t모양
+        Background threshold\t去背閾值\t背景除去のしきい値\t배경 제거 임계값
+        Black\t黑色\t黒\t검정
+        Blue\t藍色\t青\t파랑
+        Brightness\t亮度\t明るさ\t밝기
+        Browsing\t瀏覽\t閲覧\t탐색
+        Chat\t對話\tチャット\t채팅
+        Choose an archive with one skill\t請選擇只含一個技能的壓縮檔\t1つのスキルを含むアーカイブを選択してください\t스킬 하나가 담긴 압축 파일을 선택하세요
+        Contrast\t對比\tコントラスト\t대비
+        Create collection\t建立收藏集\tコレクションを作成\t컬렉션 만들기
+        Crop bottom\t裁切下緣\t切り抜きの下端\t자르기 아래쪽
+        Crop left\t裁切左緣\t切り抜きの左端\t자르기 왼쪽
+        Crop right\t裁切右緣\t切り抜きの右端\t자르기 오른쪽
+        Crop top\t裁切上緣\t切り抜きの上端\t자르기 위쪽
+        Dark\t深色\tダーク\t어둡게
+        Download interrupted; retry to resume\t下載中斷，重試即可續傳\tダウンロード中断。再試行で再開します\t다운로드 중단됨. 다시 시도하면 이어받습니다
+        Download may use mobile data\t下載可能使用行動數據\tモバイルデータを使用する場合があります\t다운로드에 모바일 데이터를 사용할 수 있습니다
+        Download on unmetered networks only\t僅透過不計量網路下載\t従量制でない接続のみでダウンロード\t데이터 무제한 네트워크로만 다운로드
+        Downloading model\t正在下載模型\tモデルをダウンロード中\t모델 다운로드 중
+        Drag a corner to resize; drag inside to move the crop.\t拖曳角落調整大小，拖曳內部移動裁切框。\t角をドラッグしてサイズ変更、内側をドラッグして移動します。\t모서리를 끌어 크기를 조절하고 안쪽을 끌어 자르기 영역을 이동하세요.
+        Drag crop\t拖曳裁切\t切り抜きをドラッグ\t자르기 끌기
+        Drag to move; pinch to zoom and rotate.\t拖曳移動，雙指縮放及旋轉。\tドラッグで移動、ピンチで拡大縮小・回転します。\t끌어 이동하고 두 손가락으로 확대, 축소, 회전하세요.
+        Editing\t編輯\t編集\t편집
+        Export cancelled\t匯出已取消\t書き出しを中止しました\t내보내기 취소됨
+        Export quality\t匯出品質\t書き出し品質\t내보내기 품질
+        File exceeds the size limit\t檔案超過大小限制\tファイルがサイズ上限を超えています\t파일이 크기 제한을 초과함
+        Frames per second\t每秒影格數\t毎秒フレーム数\t초당 프레임 수
+        GIF could not be opened or exceeds safety limits\tGIF 無法開啟或超過安全限制\tGIFを開けないか、安全上限を超えています\tGIF를 열 수 없거나 안전 제한을 초과함
+        GIF export failed\tGIF 匯出失敗\tGIFの書き出しに失敗しました\tGIF 내보내기 실패
+        Gemma 4 E2B · Light\tGemma 4 E2B · 輕量\tGemma 4 E2B · 軽量\tGemma 4 E2B · 경량
+        Gemma 4 E4B · Standard\tGemma 4 E4B · 普通\tGemma 4 E4B · 標準\tGemma 4 E4B · 일반
+        Generation stopped\t已停止生成\t生成を停止しました\t생성 중지됨
+        Incomplete download\t下載不完整\tダウンロードが不完全です\t다운로드가 불완전함
+        Invalid model download response\t模型下載回應無效\tモデル取得の応答が無効です\t모델 다운로드 응답이 유효하지 않음
+        Invalid skill file\t技能檔案無效\t無効なスキルファイル\t유효하지 않은 스킬 파일
+        KeepG downloads only the model; your media stays on this device.\tKeepG 只下載模型，您的媒體會留在裝置上。\tKeepGが取得するのはモデルのみで、メディアは端末に残ります。\tKeepG는 모델만 다운로드하며 미디어는 기기에 남습니다.
+        Light\t淺色\tライト\t밝게
+        Local AI is unavailable on this device\t此裝置無法使用本機 AI\tこの端末ではローカルAIを利用できません\t이 기기에서는 로컬 AI를 사용할 수 없음
+        Loop count\t循環次數\t繰り返し回数\t반복 횟수
+        Maintenance\t維護\tメンテナンス\t유지 관리
+        Model checksum mismatch\t模型雜湊校驗不符\tモデルのチェックサムが一致しません\t모델 체크섬이 일치하지 않음
+        Model could not run; check format, memory and backend\t模型無法執行，請檢查格式、記憶體與運算後端\tモデルを実行できません。形式、メモリ、バックエンドを確認してください\t모델을 실행할 수 없습니다. 형식, 메모리, 백엔드를 확인하세요
+        Model repository access denied\t無法存取模型儲存庫\tモデルリポジトリへのアクセスが拒否されました\t모델 저장소 접근이 거부됨
+        Model repository unavailable\t模型儲存庫無法使用\tモデルリポジトリを利用できません\t모델 저장소를 사용할 수 없음
+        Models\t模型\tモデル\t모델
+        Move image\t移動圖片\t画像を移動\t이미지 이동
+        Not enough memory to edit this GIF\t記憶體不足，無法編輯此 GIF\tメモリ不足のためGIFを編集できません\t메모리가 부족하여 GIF를 편집할 수 없음
+        Not enough memory; use a smaller model\t記憶體不足，請使用較小模型\tメモリが不足しています。小さいモデルを使用してください\t메모리가 부족합니다. 더 작은 모델을 사용하세요
+        Not enough storage\t儲存空間不足\t保存容量が不足しています\t저장 공간 부족
+        Only document-provider attachments are accepted\t僅接受文件提供者的附件\tドキュメントプロバイダーの添付のみ使用できます\t문서 제공자의 첨부만 허용됩니다
+        Open media\t開啟媒體\tメディアを開く\t미디어 열기
+        Open page\t開啟頁面\tページを開く\t페이지 열기
+        Play edited preview\t播放編輯預覽\t編集結果を再生\t편집 미리 보기 재생
+        Preview time\t預覽時間\tプレビュー時刻\t미리 보기 시간
+        Red\t紅色\t赤\t빨강
+        Replace access token\t更換存取權杖\tアクセストークンを変更\t액세스 토큰 교체
+        Retry download\t重試下載\tダウンロードを再試行\t다운로드 다시 시도
+        Rotation\t旋轉\t回転\t회전
+        Saturation\t飽和度\t彩度\t채도
+        Save changes\t儲存變更\t変更を保存\t변경 사항 저장
+        Save copy\t儲存副本\tコピーを保存\t복사본 저장
+        Scale\t縮放\t拡大縮小\t배율
+        Security\t安全\tセキュリティ\t보안
+        Select\t選取\t選択\t선택
+        Select a layer below, then drag or pinch on the canvas.\t先選取下方圖層，再於畫布拖曳或雙指縮放。\t下でレイヤーを選び、キャンバス上でドラッグまたはピンチします。\t아래에서 레이어를 선택한 뒤 캔버스에서 끌거나 두 손가락으로 조절하세요.
+        Skills\t技能\tスキル\t스킬
+        System\t跟隨系統\tシステムに従う\t시스템 설정
+        Text size\t文字大小\t文字サイズ\t텍스트 크기
+        Unable to create edited image\t無法建立編輯圖片\t編集画像を作成できません\t편집 이미지를 만들 수 없음
+        Unable to create edited video\t無法建立編輯影片\t編集動画を作成できません\t편집 동영상을 만들 수 없음
+        Unsafe skill archive\t不安全的技能壓縮檔\t安全でないスキルアーカイブ\t안전하지 않은 스킬 압축 파일
+        Unsupported model format\t不支援的模型格式\t未対応のモデル形式\t지원하지 않는 모델 형식
+        Verifying model checksum\t正在校驗模型雜湊\tモデルのチェックサムを検証中\t모델 체크섬 확인 중
+        White\t白色\t白\t흰색
+        Yellow\t黃色\t黄\t노랑
+        You\t您\tあなた\t나
         """
         %s detected faces · heuristic group\t偵測到 %s 張臉孔 · 推測群組\t%s件の顔を検出 · 推定グループ\t얼굴 %s개 감지 · 추정 그룹
         %s items\t%s 個項目\t%s件\t항목 %s개

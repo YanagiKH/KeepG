@@ -31,6 +31,7 @@ internal class AgentViewModel(application: Application) : AndroidViewModel(appli
     private val _state = MutableStateFlow(AgentState(selected = models.selectedId, gpu = models.gpu, vision = models.vision, temperature = models.temperature))
     val state: StateFlow<AgentState> = _state
     private var generation: Job? = null
+    private val epoch = java.util.concurrent.atomic.AtomicLong()
 
     init {
         // Remove abandoned attachment previews after process death; chats are never persisted.
@@ -56,7 +57,12 @@ internal class AgentViewModel(application: Application) : AndroidViewModel(appli
         _state.update { it.copy(gpu = gpu, vision = vision, temperature = temperature) }
     }
     fun cancel() { generation?.cancel() }
-    fun clear() { if (_state.value.running) return; _state.update { it.copy(messages = emptyList(), streaming = "", actions = emptyList(), issue = null) } }
+    fun clear() = invalidate(close = false)
+    fun invalidate(close: Boolean = true) {
+        epoch.incrementAndGet()
+        generation?.cancel()
+        _state.update { it.copy(opened = it.opened && !close, messages = emptyList(), streaming = "", actions = emptyList(), issue = null) }
+    }
     fun consume(action: AgentAction): Boolean {
         if (action !in _state.value.actions) return false
         _state.update { it.copy(actions = it.actions.filterNot { candidate -> candidate.id == action.id }) }
@@ -75,6 +81,8 @@ internal class AgentViewModel(application: Application) : AndroidViewModel(appli
         }
         val enabledSkills = before.skills.filter { it.enabled }.take(4)
         _state.update { it.copy(running = true, issue = null, streaming = "", actions = emptyList(), messages = (it.messages + ChatEntry(true, userText + if (files.isEmpty()) "" else "\n" + files.joinToString("\n") { f -> f.name })).takeLast(60)) }
+        val turn = epoch.get()
+        fun updateTurn(update: (AgentState) -> AgentState) { _state.update { if (epoch.get() == turn) update(it) else it } }
         generation = viewModelScope.launch(Dispatchers.IO) {
             val workspace = File(getApplication<Application>().cacheDir, "agent-turns/${UUID.randomUUID()}").apply { mkdirs() }
             try {
@@ -103,22 +111,22 @@ internal class AgentViewModel(application: Application) : AndroidViewModel(appli
                         val contents = prepared.content + Content.Text(userText.ifBlank { "Describe the supplied attachments. Acknowledge any unread content." })
                         conversation.sendMessageAsync(Contents.of(contents)).collect { chunk ->
                             ensureActive()
-                            _state.update { it.copy(streaming = (it.streaming + chunk.toString()).take(32_000)) }
+                            updateTurn { it.copy(streaming = (it.streaming + chunk.toString()).take(32_000)) }
                         }
                     } finally { conversation.close() }
                 } finally { if (engine.isInitialized()) engine.close() }
                 val response = _state.value.streaming
                 val actions = if (allowTools) AgentActionParser.parse(response, permittedIds) else emptyList()
-                _state.update { it.copy(messages = (it.messages + ChatEntry(false, response)).takeLast(60), actions = actions, streaming = "") }
+                updateTurn { it.copy(messages = (it.messages + ChatEntry(false, response)).takeLast(60), actions = actions, streaming = "") }
             } catch (cancelled: CancellationException) {
-                _state.update { it.copy(issue = "Generation stopped", streaming = "") }
+                updateTurn { it.copy(issue = "Generation stopped", streaming = "") }
                 throw cancelled
             } catch (memory: OutOfMemoryError) {
-                _state.update { it.copy(issue = "Not enough memory; use a smaller model", streaming = "") }
+                updateTurn { it.copy(issue = "Not enough memory; use a smaller model", streaming = "") }
             } catch (native: LinkageError) {
-                _state.update { it.copy(issue = "Local AI is unavailable on this device", streaming = "") }
+                updateTurn { it.copy(issue = "Local AI is unavailable on this device", streaming = "") }
             } catch (error: Exception) {
-                _state.update { it.copy(issue = "Model could not run; check format, memory and backend", streaming = "") }
+                updateTurn { it.copy(issue = "Model could not run; check format, memory and backend", streaming = "") }
             } finally {
                 workspace.deleteRecursively()
                 _state.update { it.copy(running = false) }

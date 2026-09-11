@@ -153,3 +153,17 @@ Automatic prerelease APKs are debug-key signed and intended for direct testing. 
 - [ ] Debug log enable/view/export/clear works and contains no secrets.
 - [ ] Full photo/album locks and Vault still work.
 - [ ] Automatic GitHub prerelease contains Full/Lite APK variants, AABs and `SHA256SUMS.txt`.
+
+## 0.7 workspace regression checks
+
+Run `python3 scripts/check_localization.py` before Gradle. This validates all four dictionaries, literal UI keys, selected dynamic labels, placeholders and Android resource parity. Registered translations also have JVM coverage. User filenames, model/skill source text, engine answers and third-party system dialogs are not app translations.
+
+The toolchain is Kotlin 2.3.10 / KSP 2.3.4 / Room 2.8.4, matching LiteRT-LM 0.16.0's Kotlin metadata. Do not downgrade only Kotlin or ignore metadata-version checks; Room 2.6.x can fail in KSP2. The project uses the typed Kotlin `compilerOptions` DSL and Java 17.
+
+`WorkspaceUiTest` runs real Compose settings, album selection, image editor and AI model/chat screens using synthetic app-private fixtures. It never loads GB-sized models or touches the user's library. CI artifacts `keepg-device-api-26` and `keepg-device-api-35` contain UI PNGs and instrumentation reports. `keepg-build-reports` contains APKs and lint/unit results. Always match artifacts and check results to the final commit SHA.
+
+Model download stuck: check allowed network, notification/foreground restrictions, free space and repository license acceptance. A 401/403 can require an HF read token; never paste the token into an issue. A checksum mismatch must not be bypassed. Re-select the same model to retry a fixed revision. Loading failures: start with CPU text + E2B, ensure a supported 64-bit ABI and enough free RAM. GPU/vision are optional and device-specific.
+
+Editor failures: reproduce with a small ordinary JPEG, GIF under the documented bounds and H.264/AAC clip; then record OS/ABI, source MIME, dimensions/duration and export options. A source can preview but fail encoder creation. Capture `adb logcat -d` after reproduction, redact paths/names/tokens and attach test media only with permission. Cancellation should leave the original intact and no incomplete public output.
+
+Physical-device acceptance still requires: both Gemma presets after actual downloads; airplane-mode chat after installation; tool proposals/rejections with locked media; model download cancel/resume; screen-lock/background interruptions; JPEG/PNG/WebP comparisons; GIF timing/transparency; video audio sync and encoder behavior. CI does not establish performance, quality or compatibility on every phone.
