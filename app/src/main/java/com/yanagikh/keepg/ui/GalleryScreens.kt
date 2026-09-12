@@ -379,7 +379,7 @@ internal fun AlbumsScreen(
             items(visibleCollections, key = { "c-${it.id}" }) { collection ->
                 ListItem(
                     headlineContent = { Text(collection.name) },
-                    supportingContent = { Text("${collectionItems.count { it.collectionId == collection.id }} items") },
+                    supportingContent = { Text(trf("%s items", collectionItems.count { it.collectionId == collection.id })) },
                     leadingContent = { Icon(Icons.Default.Collections, null) },
                     modifier = Modifier.combinedClickable(onClick = { collectionId = collection.id }, onLongClick = {}),
                 )
@@ -394,7 +394,7 @@ internal fun AlbumsScreen(
                 val locked = allowProtection && lock != null && !isUnlocked(lock, unlocked)
                 ListItem(
                     headlineContent = { Text(group.first().bucketName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = { Text("${group.size} items${if (locked) " · ${tr("Protected")}" else ""}") },
+                    supportingContent = { Text(trf("%s items", group.size) + if (locked) " · ${tr("Protected")}" else "") },
                     leadingContent = {
                         if (locked) Icon(Icons.Default.Lock, null)
                         else AsyncImage(Uri.parse(group.first().uri), null, Modifier.size(50.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
