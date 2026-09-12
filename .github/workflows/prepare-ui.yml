@@ -32,9 +32,11 @@ jobs:
               old = 'Text("' + label + '")'
               assert text.count(old) == 1, label
               text = text.replace(old, 'Text(tr("' + label + '"))')
-          old = 'Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {\n            Column(Modifier.fillMaxSize()) {'
-          assert text.count(old) == 1
-          text = text.replace(old, old.replace('Column(Modifier.fillMaxSize())', 'Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding())'))
+          head, marker, tail = text.partition('private fun AdvancedImageEditorDialog(')
+          assert marker
+          old = 'Column(Modifier.fillMaxSize()) {'
+          assert tail.count(old) == 1
+          text = head + marker + tail.replace(old, 'Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {')
           updates[str(path)] = text
           path = root / 'GalleryScreens.kt'
           text = path.read_text()
