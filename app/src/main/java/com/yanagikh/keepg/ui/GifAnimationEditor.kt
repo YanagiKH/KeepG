@@ -52,7 +52,7 @@ internal fun GifAnimationEditor(photo: PhotoEntity, onDismiss: () -> Unit, onRef
         catch (_: OutOfMemoryError) { issue = "Not enough memory to edit this GIF" }
     }
     fun dismiss() { job?.cancel(); onDismiss() }
-    Dialog(onDismissRequest = ::dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = ::dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(12.dp)) {
                 Row { Text(tr("GIF animation"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge); AgentEntryButton(); TextButton(::dismiss) { Text(tr("Close")) } }

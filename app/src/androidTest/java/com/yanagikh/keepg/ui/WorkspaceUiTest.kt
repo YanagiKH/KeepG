@@ -114,7 +114,7 @@ class WorkspaceUiTest {
         compose.onNodeWithContentDescription("Undo").assertIsEnabled().performClick()
         compose.onNodeWithContentDescription("Redo").assertIsEnabled().performClick()
         screenshot("image-editor")
-        compose.onNodeWithText("Save changes").performClick()
+        compose.onNodeWithText("Save changes").assertIsDisplayed().performClick()
         compose.runOnIdle { requireNotNull(result).validate(); assertTrue(requireNotNull(result).cropLeft > 0f) }
     }
     @Test fun gifTimelineAndAppearanceEditorLoadWithRealFrames() {
@@ -134,12 +134,12 @@ class WorkspaceUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Edit crop, color and layers").fetchSemanticsNodes().any {
             !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
         } }
-        compose.onNodeWithText("Save animated copy").assertIsEnabled()
+        compose.onNodeWithText("Save animated copy").assertIsDisplayed().assertIsEnabled()
         screenshot("gif-editor")
         compose.onNodeWithText("Edit crop, color and layers").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("editing-canvas").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("editing-canvas").assertExists()
-        compose.onNodeWithText("Save changes").performClick()
+        compose.onNodeWithText("Save changes").assertIsDisplayed().performClick()
         compose.onNodeWithText("GIF animation").assertExists()
     }
     @Test fun videoCropGestureSupportsUndoAndLoadedExport() {
@@ -178,6 +178,10 @@ class WorkspaceUiTest {
         compose.onNodeWithTag("agent-input").assertIsDisplayed()
         compose.onNodeWithContentDescription("Attach files").assertIsDisplayed()
         screenshot("ai-chat")
+        compose.onNodeWithTag("agent-input").performClick().performTextInput("Hello KeepG")
+        compose.waitForIdle()
+        compose.onNodeWithTag("agent-input").assertIsDisplayed().assertTextContains("Hello KeepG")
+        compose.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsEnabled()
         compose.runOnIdle { agent.invalidate() }
     }
 }

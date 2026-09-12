@@ -91,7 +91,7 @@ internal fun ProfessionalVideoEditor(photo: PhotoEntity, onDismiss: () -> Unit, 
         catch (_: Exception) { issue = "Video preview unavailable" }
         catch (_: OutOfMemoryError) { issue = "Video preview unavailable" }
     }
-    Dialog(::close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(::close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().testTag("video-editor")) {
             Column(Modifier.safeDrawingPadding().imePadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

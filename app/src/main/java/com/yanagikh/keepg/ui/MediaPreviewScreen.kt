@@ -300,7 +300,7 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
     var textInput by remember { mutableStateOf("") }
     var layers by remember { mutableStateOf<List<TextLayerSpec>>(emptyList()) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -73,7 +73,7 @@ internal fun AgentHost(
             catch (error: Exception) { agent.issue("Unable to read attachment") }
         }
     }
-    Dialog(onDismissRequest = agent::close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = agent::close, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().testTag("agent-host"), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 TopAppBar(title = { Text(tr("AI assistant")) }, navigationIcon = { IconButton(agent::close) { Icon(Icons.Default.Close, tr("Close")) } },
