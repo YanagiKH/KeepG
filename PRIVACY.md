@@ -1,11 +1,27 @@
-# KeepG Privacy Notes
+# KeepG 0.7 隱私說明
 
-KeepG is designed to work without an account and without an application backend. Version 0.7 requests Internet access solely for user-requested model search/downloads; inference and media processing stay on the device. Hugging Face and its download hosts receive ordinary connection data such as IP address and the requested repository. No media is sent by the local AI implementation.
+KeepG 不需要 KeepG 帳號，也沒有應用程式專屬雲端後端。相簿整理、OCR、人臉分類、編輯與本機模型推論在 Android 裝置進行。
 
-Data kept locally can include MediaStore identifiers and metadata, album names, user-created collection names, lock metadata, salted password hashes, smart rules, face feature descriptors, user-assigned person names, and encrypted Vault files.
+## 何時使用網路
 
-Face descriptors are sensitive local metadata. KeepG uses them only for on-device organization. They are not intended for identity verification, surveillance, or remote profiling.
+本版具有 Internet 權限。使用者搜尋 Hugging Face、讀取模型資訊或確認下載時，HF／下載主機會收到查詢、模型請求路徑、IP 等一般連線資料；受限模型可使用使用者提供的 read token。權杖以 Android Keystore 加密儲存，不轉送到 CDN 轉址。沒有內建雲端推論或自動上傳媒體流程；這不等於沒有任何網路流量。
 
-Removing KeepG deletes its normal app-private database, Keystore aliases, and Vault directory according to Android's application data lifecycle. Original photos stored in MediaStore remain governed by Android and are not automatically deleted when KeepG is uninstalled.
+使用者主動透過 Android 分享媒體／日誌，或點選 HTTP(S) 網址／模型卡離開 App 時，由接收應用程式或瀏覽器處理，適用對方的隱私政策。請檢查接收對象及內容。
 
-AI chat history is memory-only. Selected attachments are copied or rendered into bounded private temporary files and removed after the turn. Backgrounding or lock/permission changes clear conversation context and invalidate proposals. Models and disabled/enabled Skills are app-private persistent data; deleting app data removes them. Read tokens are Android Keystore-encrypted and can be removed in Models. Explicit Android shares and external browser links are separate user-directed disclosures.
+## 留在裝置的資料
+
+Room／偏好設定可能保存媒體識別碼、路徑／檔名／時間／尺寸、相簿名、收藏集參照、最愛、鎖定資訊、加鹽密碼雜湊、人臉描述／人物名稱、智慧規則及文字索引。位置及人臉資訊屬敏感資料；人臉描述僅作便利分類，不是身分驗證。
+
+模型、Skills、加密保險箱、加密 HF token 和除錯日誌保存在 App 私有儲存。使用者可移除模型／Skill／token、清除文字索引與日誌；清除索引不會刪除媒體原檔。Full 與 Lite 使用不同套件名稱，因此私有資料不共用。
+
+## 聊天及附件
+
+聊天顯示記錄只在記憶體，最多 60 則；本輪送入模型的是截短的近期對話、已啟用技能和使用者選擇提供的可見中繼資料。附件由 Android 文件選擇器授權，複製／渲染為有大小上限的私有暫存，正常一輪結束後清理。僅有檔案型態中繼資料的附件不可被描述為已完整分析。
+
+清除聊天、進入背景或相關鎖／權限改變會清空敏感對話上下文並作廢操作建議。程序被系統終止時記憶體消失；故聊天不是跨啟動的永久記錄。AI 回答可能錯誤，不應放入密碼或其他不必要的秘密。
+
+## 移除 App、金鑰與備份
+
+解除安裝、清除資料或重設裝置可能移除 Room、模型、Skills、Keystore 金鑰及保險箱。MediaStore 原檔與先前另存的普通媒體不會因此自動刪除。保險箱 `.kgv` 沒有原金鑰無法解密；先解密匯出至可信位置並驗證獨立備份，再移機或更換測試簽章。不要以正常 Android 雲端備份作為 Vault 復原方案。
+
+除錯日誌可能含檔名、例外及時間，不會自動上傳；匯出前後應檢查並去識別化。詳細邊界見 [安全手冊](SECURITY.md) 及 [AI 手冊](AI_MANUAL.md)。

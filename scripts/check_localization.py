@@ -22,14 +22,35 @@ for row in rows:
     keys.add(row[0])
     for value in row[1:]:
         assert re.findall(r'%\d*\$?[sdf]', row[0]) == re.findall(r'%\d*\$?[sdf]', value), row
+# App labels must use the same translation boundary as widget resources.
+# Technical brands/units are intentional literals; user content is not translated.
+def unlocalized_text_literals(text):
+    allowed = {'KeepG', 'K', 'GIF', 'jpg · png · gif · mp4 · webm …'}
+    found = []
+    for match in re.finditer(r'(?<![\w.])Text\s*\(\s*(?:text\s*=\s*)?"((?:\\.|[^"\\])*)"', text):
+        value = match.group(1)
+        if value in allowed:
+            continue
+        if '$' in value:
+            # Dynamic filenames/numbers are data. Natural-language count labels
+            # still require trf rather than English suffix interpolation.
+            if re.search(r'\}\s+items\b', value):
+                found.append(value)
+        elif re.search(r'[A-Za-z]', value):
+            found.append(value)
+    return found
+
 required = set()
+unlocalized = []
 for path in (root / 'app/src').rglob('*.kt'):
     if any(part in ('test', 'androidTest') for part in path.parts):
         continue
     text = path.read_text()
+    unlocalized.extend(f"{path.relative_to(root)}: {value}" for value in unlocalized_text_literals(text))
     required.update(re.findall(r'(?:trf?|localized|issue|EditorSlider|AgentFailure)\("([^"\n$]+)"', text))
     if path.name in ('AgentPolicy.kt', 'GallerySettingsScreen.kt', 'ProfessionalImageEditor.kt'):
         required.update(re.findall(r'\b[A-Z][A-Z_]+\("([^"\n]+)"', text))
+assert not unlocalized, "Unlocalized Text:\n" + "\n".join(unlocalized)
 # Dynamic labels are not fully inferable with regex; keep their catalog explicit.
 required.update(['System', 'Light', 'Dark', 'Chat', 'Models', 'Skills', 'Gemma 4 E2B · Light', 'Gemma 4 E4B · Standard'])
 missing = sorted(required - keys)

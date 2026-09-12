@@ -89,6 +89,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Compile both test applications before booting the emulator
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          gradle :app:assembleFullDebug :app:assembleLiteDebug :app:assembleFullDebugAndroidTest :app:assembleLiteDebugAndroidTest --stacktrace --no-daemon --max-workers=2 2>&1 | tee ci-logs/instrumentation-build.log
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -100,6 +105,8 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
+          ram-size: 2048M
+          cores: 2
           disable-animations: true
           script: bash scripts/ci-device-tests.sh
       - name: Upload device test evidence
