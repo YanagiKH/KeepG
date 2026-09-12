@@ -1,0 +1,60 @@
+name: Prepare UI integration objects
+on:
+  push:
+    branches: [feature/workspace-agent-0.7]
+    paths: [.github/workflows/prepare-ui.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.repository == 'YanagiKH/KeepG'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare scoped Git objects without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess, urllib.request
+          repo = os.environ['GITHUB_REPOSITORY']
+          def post(endpoint, body):
+              req = urllib.request.Request('https://api.github.com/repos/' + repo + endpoint, data=json.dumps(body).encode(), headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'}, method='POST')
+              with urllib.request.urlopen(req, timeout=60) as response: return json.load(response)
+          root = pathlib.Path('app/src/main/java/com/yanagikh/keepg')
+          updates = {}
+          old = 'DialogProperties(usePlatformDefaultWidth = false)'
+          new = 'DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)'
+          for name in ('agent/AgentUi.kt', 'ui/ProfessionalImageEditor.kt', 'ui/ProfessionalVideoEditor.kt', 'ui/GifAnimationEditor.kt', 'ui/MediaPreviewScreen.kt'):
+              path = root / name
+              text = path.read_text()
+              assert text.count(old) == 1, path
+              updates[str(path)] = text.replace(old, new)
+          path = pathlib.Path('app/src/androidTest/java/com/yanagikh/keepg/ui/WorkspaceUiTest.kt')
+          text = path.read_text()
+          for old, new, count in [
+              ('compose.onNodeWithText("Save changes").performClick()', 'compose.onNodeWithText("Save changes").assertIsDisplayed().performClick()', 2),
+              ('compose.onNodeWithText("Save animated copy").assertIsEnabled()', 'compose.onNodeWithText("Save animated copy").assertIsDisplayed().assertIsEnabled()', 1),
+              ('        screenshot("ai-chat")\n', '        screenshot("ai-chat")\n        compose.onNodeWithTag("agent-input").performClick().performTextInput("Hello KeepG")\n        compose.waitForIdle()\n        compose.onNodeWithTag("agent-input").assertIsDisplayed().assertTextContains("Hello KeepG")\n        compose.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsEnabled()\n', 1),
+          ]:
+              assert text.count(old) == count, old
+              text = text.replace(old, new)
+          updates[str(path)] = text
+          entries = []
+          for path, text in updates.items():
+              blob = post('/git/blobs', {'encoding': 'base64', 'content': base64.b64encode(text.encode()).decode()})
+              entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+          base = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          tree = post('/git/trees', {'base_tree': base, 'tree': entries})
+          result = {'base_commit': os.environ['GITHUB_SHA'], 'tree': tree['sha'], 'entries': entries}
+          pathlib.Path('prepared-tree.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prepared-ui-tree
+          path: prepared-tree.json
+          if-no-files-found: error
