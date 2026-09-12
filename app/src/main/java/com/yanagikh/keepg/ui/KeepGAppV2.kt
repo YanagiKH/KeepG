@@ -26,6 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.yanagikh.keepg.agent.*
+import com.yanagikh.keepg.advanced.MediaEditOperation
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yanagikh.keepg.KeepGApplication
 import com.yanagikh.keepg.MainViewModel
 import com.yanagikh.keepg.data.*
@@ -54,6 +57,7 @@ fun KeepGAppV2(
     initialDestination: String? = null,
 ) {
     val context = LocalContext.current
+    val agent: AgentViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val container = remember(context) { (context.applicationContext as KeepGApplication).container }
     val scope = rememberCoroutineScope()
     val photos by viewModel.photos.collectAsStateWithLifecycle()
@@ -85,7 +89,17 @@ fun KeepGAppV2(
     val mediaTextIndexCount by viewModel.mediaTextIndexCount.collectAsStateWithLifecycle()
     val fullFeatures = viewModel.fullFeatures
 
-    CompositionLocalProvider(LocalAppLanguage provides settings.language) {
+    LaunchedEffect(locks, unlocked, settings.agentEnabled, settings.agentAllowTools) { agent.invalidate() }
+    val agentLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(agentLifecycle, agent) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) agent.invalidate(close = false)
+        }
+        agentLifecycle.lifecycle.addObserver(observer)
+        onDispose { agentLifecycle.lifecycle.removeObserver(observer) }
+    }
+
+    CompositionLocalProvider(LocalAppLanguage provides settings.language, LocalAgentLauncher provides if (settings.agentEnabled) ({ agent.open() }) else null) {
         fun localized(key: String): String = UiLocalizer.text(settings.language, key)
         fun localizedFormat(key: String, vararg args: Any): String = String.format(Locale.ROOT, localized(key), *args)
         val tabs = if (fullFeatures) TabV2.entries else listOf(TabV2.PHOTOS, TabV2.ALBUMS, TabV2.SETTINGS)
@@ -234,8 +248,10 @@ fun KeepGAppV2(
         }
 
         fun selectMedia(media: List<PhotoEntity>) {
-            viewModel.selectMedia(media.map { it.mediaId })
-            tabName = TabV2.PHOTOS.name
+            viewModel.selectMedia(media.filter { mediaItem ->
+                val mediaLock = findLock(mediaItem, locks)
+                mediaLock == null || isUnlocked(mediaLock, unlocked)
+            }.map { it.mediaId })
         }
 
         fun favoriteMedia(media: List<PhotoEntity>) {
@@ -314,6 +330,7 @@ fun KeepGAppV2(
                                 }
                             },
                             actions = {
+                                AgentEntryButton()
                                 if (busy) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                                 IconButton({ cameraOpen = true }) { Icon(Icons.Default.PhotoCamera, tr("KeepG Camera")) }
                                 IconButton(onClick = viewModel::refresh) { Icon(Icons.Default.Refresh, tr("Refresh")) }
@@ -417,6 +434,10 @@ fun KeepGAppV2(
                                 onRestoreTrash = ::restoreTrash,
                                 onDeleteTrash = ::permanentlyDeleteTrash,
                                 allowProtection = fullFeatures,
+                                onClearSelection = viewModel::clearSelection,
+                                onCollectionSelected = { if (selectedPhotos.isNotEmpty()) batchCollection = true },
+                                onProtectSelected = { if (selectedPhotos.isNotEmpty()) batchProtect = true },
+                                onAnalyzeSelected = { analyzeMedia(selectedPhotos) },
                             )
                             TabV2.SMART -> SmartScreen(photos, faces, people, rules, busy, viewModel)
                             TabV2.VAULT -> VaultScreen(vault, viewModel::removeVaultItem)
@@ -447,6 +468,15 @@ fun KeepGAppV2(
                                 onExportLog = { logExportLauncher.launch("keepg-debug.log") },
                                 onClearLog = viewModel::clearDebugLog,
                                 onShowLog = viewModel::debugSnapshot,
+                                preferences = container.preferences,
+                                onClearThumbnails = {
+                                    scope.launch(Dispatchers.IO) {
+                                        coil.Coil.imageLoader(context).memoryCache?.clear()
+                                        coil.Coil.imageLoader(context).diskCache?.clear()
+                                    }
+                                },
+                                onClearImageIndex = viewModel::clearImageTextIndex,
+                                onOpenAgent = { agent.open() },
                             )
                         }
                         }
@@ -454,6 +484,7 @@ fun KeepGAppV2(
                 }
             }
 
+            if (cameraOpen && settings.agentEnabled) Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 8.dp, top = 64.dp)) { AgentEntryButton() }
             if (showLaunch) KeepGLaunchAnimation(Modifier.fillMaxSize())
         }
 
@@ -640,6 +671,63 @@ fun KeepGAppV2(
                 },
                 { passwordTarget = null },
             )
+        }
+        val agentMedia = photos.filter { isGridMediaVisible(it, locks, unlocked) }
+        val agentCatalogMedia = (agentMedia.filter { it.mediaId in selectedIds } + agentMedia).distinctBy { it.mediaId }.take(100)
+        val agentCatalog = org.json.JSONObject()
+            .put("media", org.json.JSONArray().also { array -> agentCatalogMedia.forEach { item ->
+                array.put(org.json.JSONObject().put("id", item.mediaId).put("name", item.displayName.take(120)).put("album", item.bucketName.take(80)).put("mime", item.mimeType))
+            } })
+            .put("collections", org.json.JSONArray().also { array -> collections.take(50).forEach { item -> array.put(org.json.JSONObject().put("id", item.id).put("name", item.name)) } })
+            .toString()
+        AgentHost(agent, settings, agentCatalog, agentCatalogMedia.map { it.mediaId }.toSet(), agentMedia.associate { it.mediaId to it.displayName }) { action ->
+            try {
+                require(settings.agentAllowTools)
+                val media = action.mediaIds.map { id -> photosById[id]?.takeIf { isGridMediaVisible(it, locks, unlocked) } ?: error("Unavailable media") }
+                require(!action.type.mediaRequired || media.isNotEmpty())
+                val fullOnly = setOf(AgentActionType.PROTECT, AgentActionType.VAULT, AgentActionType.ANALYZE, AgentActionType.EDIT, AgentActionType.REPAIR, AgentActionType.INDEX_TEXT, AgentActionType.CLEAR_INDEX)
+                require(fullFeatures || action.type !in fullOnly)
+                fun targetCollection() = collections.firstOrNull { it.id == action.collectionId } ?: error("Unavailable collection")
+                fun name() = action.argument.trim().also { require(it.isNotBlank() && it.length <= 160 && '/' !in it && '\\' !in it) }
+                when (action.type) {
+                    AgentActionType.NAVIGATE -> { val destination = TabV2.valueOf(action.argument); require(destination in tabs); cameraOpen = false; tabName = destination.name; viewModel.clearSelection() }
+                    AgentActionType.SEARCH -> { viewModel.setSearchQuery(action.argument); viewModel.setTypeFilter(MediaTypeFilter.valueOf(action.value.ifBlank { "ALL" })); tabName = TabV2.PHOTOS.name }
+                    AgentActionType.SELECT -> { selectMedia(media); tabName = TabV2.PHOTOS.name }
+                    AgentActionType.FAVORITE -> favoriteMedia(media)
+                    AgentActionType.SHARE -> shareTarget = media
+                    AgentActionType.DELETE -> deleteTarget = media
+                    AgentActionType.PROTECT -> { selectMedia(media); tabName = TabV2.PHOTOS.name; batchProtect = true }
+                    AgentActionType.VAULT -> vaultMedia(media)
+                    AgentActionType.ANALYZE -> analyzeMedia(media)
+                    AgentActionType.OPEN -> { require(media.size == 1); openMedia(media.single(), media.map { it.mediaId }) }
+                    AgentActionType.EDIT -> { require(media.size == 1); viewModel.editMedia(media.single(), MediaEditOperation.valueOf(action.argument), .35f) }
+                    AgentActionType.RENAME -> { require(media.size == 1); viewModel.renameMedia(media.single(), name()) }
+                    AgentActionType.REPAIR -> { require(media.size == 1); viewModel.repairMedia(media.single(), false) }
+                    AgentActionType.CREATE_COLLECTION -> viewModel.createCollection(name())
+                    AgentActionType.ADD_TO_COLLECTION -> viewModel.addMediaToCollection(targetCollection().id, media.map { it.mediaId })
+                    AgentActionType.REMOVE_FROM_COLLECTION -> media.forEach { viewModel.removeFromCollection(targetCollection().id, it.mediaId) }
+                    AgentActionType.RENAME_COLLECTION -> viewModel.renameCollection(targetCollection().id, name())
+                    AgentActionType.CLEAR_COLLECTION -> viewModel.clearCollection(targetCollection().id)
+                    AgentActionType.DELETE_COLLECTION -> viewModel.deleteCollection(targetCollection().id)
+                    AgentActionType.REFRESH -> viewModel.refresh()
+                    AgentActionType.CAMERA -> cameraOpen = true
+                    AgentActionType.INDEX_TEXT -> viewModel.indexImageText(false)
+                    AgentActionType.CLEAR_INDEX -> viewModel.clearImageTextIndex()
+                    AgentActionType.SETTINGS -> when (action.argument) {
+                        "theme" -> container.preferences.setThemeMode(ThemeMode.valueOf(action.value))
+                        "columns" -> viewModel.setGridColumns(action.value.toInt().also { require(it in 2..8) })
+                        "autoplay" -> viewModel.setVideoPreviewAutoPlay(action.value.toBooleanStrict())
+                        "animations" -> viewModel.setAnimationsEnabled(action.value.toBooleanStrict())
+                        "language" -> viewModel.setLanguage(AppLanguage.valueOf(action.value))
+                        "sort" -> viewModel.setSortMode(MediaSortMode.valueOf(action.value))
+                        "descending" -> viewModel.setSortDescending(action.value.toBooleanStrict())
+                        else -> error("Unsupported setting")
+                    }
+                }
+                viewModel.notifyUser(localized("Action requested; review any further confirmation"))
+            } catch (error: Exception) {
+                viewModel.notifyUser(localized("Action rejected: unavailable target, permission or arguments"))
+            }
         }
     }
 }

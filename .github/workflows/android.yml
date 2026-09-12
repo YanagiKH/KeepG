@@ -1,19 +1,15 @@
 name: Android CI
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build-test-lint:
     runs-on: ubuntu-latest
@@ -25,35 +21,53 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Verify translation and release validation guards
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Lint and unit test both editions
-        run: >-
-          gradle
-          :app:lintFullDebug :app:lintLiteDebug
-          :app:testFullDebugUnitTest :app:testLiteDebugUnitTest
-          --stacktrace --no-daemon --max-workers=2
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          gradle :app:lintFullDebug :app:lintLiteDebug :app:testFullDebugUnitTest :app:testLiteDebugUnitTest --stacktrace --no-daemon --max-workers=2 2>&1 | tee ci-logs/build-test-lint.log
       - name: Assemble Full
         run: gradle :app:assembleFullDebug --stacktrace --no-daemon --max-workers=2
       - name: Assemble Lite
         run: gradle :app:assembleLiteDebug --stacktrace --no-daemon --max-workers=2
-      - name: Verify install packages exist
-        run: |
-          find app/build/outputs/apk -type f -name '*.apk' -print
-          test "$(find app/build/outputs/apk -type f -name '*.apk' | wc -l)" -ge 2
-      - name: Upload APKs and reports
+      - name: Build release bundles
+        run: gradle :app:bundleFullRelease :app:bundleLiteRelease --stacktrace --no-daemon --max-workers=2
+      - name: Verify signatures and package the complete installer matrix
+        run: python3 scripts/release_assets.py package
+      - name: Upload verified installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepg-installers
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload package manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepg-package-manifest
+          path: |
+            dist/BUILD-INFO.json
+            dist/SIGNATURES.txt
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: keepg-build-reports
           path: |
-            app/build/outputs/apk/**/*.apk
             app/build/reports/**
+            ci-logs/**
           if-no-files-found: ignore
-
   instrumentation:
     runs-on: ubuntu-latest
     timeout-minutes: 50
@@ -68,11 +82,18 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Compile both test applications before booting the emulator
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          gradle :app:assembleFullDebug :app:assembleLiteDebug :app:assembleFullDebugAndroidTest :app:assembleLiteDebugAndroidTest --stacktrace --no-daemon --max-workers=2 2>&1 | tee ci-logs/instrumentation-build.log
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -84,7 +105,18 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
+          ram-size: 2048M
+          cores: 2
           disable-animations: true
-          script: |
-            gradle :app:connectedFullDebugAndroidTest --stacktrace --no-daemon --max-workers=2
-            gradle :app:connectedLiteDebugAndroidTest --stacktrace --no-daemon --max-workers=2
+          script: bash scripts/ci-device-tests.sh
+      - name: Upload device test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepg-device-api-${{ matrix.api-level }}
+          path: |
+            qa-screenshots/**
+            ci-logs/**
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
+          if-no-files-found: ignore

@@ -125,7 +125,19 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
         }
     }
 
+    override suspend fun previewSource(media: PhotoEntity, mode: BackgroundRemovalMode, strength: Float): Bitmap = withContext(Dispatchers.IO) {
+        val decoded = decodeBitmap(Uri.parse(media.uri), 1_048_576)
+        try {
+            when (mode) {
+                BackgroundRemovalMode.NONE -> decoded
+                BackgroundRemovalMode.AUTO -> autoRemoveBackground(decoded)
+                BackgroundRemovalMode.MANUAL -> manualRemoveBackground(decoded, strength.coerceIn(.05f, .95f))
+            }.also { if (it !== decoded) decoded.recycle() }
+        } catch (error: Throwable) { decoded.recycle(); throw error }
+    }
+
     override suspend fun editAdvanced(media: PhotoEntity, request: AdvancedEditRequest): String = withContext(Dispatchers.IO) {
+        request.validate()
         require(media.mimeType.startsWith("image/")) { "The layer editor currently exports image and GIF frames" }
         val decoded = decodeBitmap(Uri.parse(media.uri))
         var source: Bitmap? = decoded
@@ -134,92 +146,12 @@ private class FullAdvancedFeatureTools(private val context: Context) : AdvancedF
             source = when (request.backgroundRemoval) {
                 BackgroundRemovalMode.NONE -> decoded
                 BackgroundRemovalMode.AUTO -> autoRemoveBackground(decoded)
-                BackgroundRemovalMode.MANUAL -> manualRemoveBackground(decoded, request.backgroundStrength.coerceIn(0.05f, 0.95f))
+                BackgroundRemovalMode.MANUAL -> manualRemoveBackground(decoded, request.backgroundStrength)
             }
             if (source !== decoded && !decoded.isRecycled) decoded.recycle()
-
-            val activeSource = requireNotNull(source)
-            val sourceAspect = activeSource.width.toFloat() / activeSource.height.coerceAtLeast(1)
-            val viewportAspect = request.viewportAspectRatio.coerceIn(0.2f, 5f)
-            val viewportWidth: Float
-            val viewportHeight: Float
-            if (viewportAspect >= sourceAspect) {
-                viewportHeight = activeSource.height.toFloat()
-                viewportWidth = viewportHeight * viewportAspect
-            } else {
-                viewportWidth = activeSource.width.toFloat()
-                viewportHeight = viewportWidth / viewportAspect
-            }
-            val normalizedCropLeft = request.cropLeft.coerceIn(0f, .95f)
-            val normalizedCropTop = request.cropTop.coerceIn(0f, .95f)
-            val cropLeft = normalizedCropLeft * viewportWidth
-            val cropTop = normalizedCropTop * viewportHeight
-            val cropRight = request.cropRight.coerceIn(normalizedCropLeft + .02f, 1f) * viewportWidth
-            val cropBottom = request.cropBottom.coerceIn(normalizedCropTop + .02f, 1f) * viewportHeight
-            val rawOutputWidth = (cropRight - cropLeft).coerceAtLeast(1f)
-            val rawOutputHeight = (cropBottom - cropTop).coerceAtLeast(1f)
-            val outputScale = min(
-                1f,
-                min(
-                    4096f / max(rawOutputWidth, rawOutputHeight),
-                    sqrt(8_388_608f / (rawOutputWidth * rawOutputHeight)),
-                ),
-            )
-            output = Bitmap.createBitmap(
-                (rawOutputWidth * outputScale).toInt().coerceAtLeast(1),
-                (rawOutputHeight * outputScale).toInt().coerceAtLeast(1),
-                Bitmap.Config.ARGB_8888,
-            )
-            val activeOutput = requireNotNull(output)
-            val canvas = Canvas(activeOutput)
-            val colorMatrix = ColorMatrix().apply { setSaturation(request.saturation.coerceIn(0f, 2f)) }
-            val contrast = request.contrast.coerceIn(0.25f, 2.5f)
-            val translate = (1f - contrast) * 128f + request.brightness.coerceIn(-1f, 1f) * 255f
-            colorMatrix.postConcat(
-                ColorMatrix(
-                    floatArrayOf(
-                        contrast, 0f, 0f, 0f, translate,
-                        0f, contrast, 0f, 0f, translate,
-                        0f, 0f, contrast, 0f, translate,
-                        0f, 0f, 0f, 1f, 0f,
-                    )
-                )
-            )
-            val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-                colorFilter = ColorMatrixColorFilter(colorMatrix)
-            }
-            val viewportCenterX = viewportWidth / 2f
-            val viewportCenterY = viewportHeight / 2f
-            val fitLeft = (viewportWidth - activeSource.width) / 2f
-            val fitTop = (viewportHeight - activeSource.height) / 2f
-            val matrix = Matrix().apply {
-                postTranslate(fitLeft - viewportCenterX, fitTop - viewportCenterY)
-                postScale(request.scale.coerceIn(0.05f, 20f), request.scale.coerceIn(0.05f, 20f))
-                postRotate(request.rotation)
-                postTranslate(
-                    viewportCenterX + request.offsetX.coerceIn(-2f, 2f) * viewportWidth - cropLeft,
-                    viewportCenterY + request.offsetY.coerceIn(-2f, 2f) * viewportHeight - cropTop,
-                )
-                postScale(outputScale, outputScale)
-            }
-            canvas.drawBitmap(activeSource, matrix, imagePaint)
-            request.textLayers.filter { it.text.isNotBlank() }.forEach { layer ->
-                val x = (layer.x.coerceIn(-1f, 2f) * viewportWidth - cropLeft) * outputScale
-                val y = (layer.y.coerceIn(-1f, 2f) * viewportHeight - cropTop) * outputScale
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.WHITE
-                    textSize = (min(rawOutputWidth, rawOutputHeight) * outputScale * 0.075f * layer.scale.coerceIn(0.2f, 5f)).coerceAtLeast(16f)
-                    setShadowLayer(max(2f, textSize * 0.04f), 0f, max(1f, textSize * 0.02f), Color.BLACK)
-                }
-                canvas.save()
-                canvas.rotate(layer.rotation, x, y)
-                canvas.drawText(layer.text.take(120), x, y + paint.textSize, paint)
-                canvas.restore()
-            }
-            saveBitmapNamed(activeOutput, request.outputName, sanitizeTimestamp(media.dateTaken)).toString()
-        } finally {
-            recycleDistinctBitmaps(decoded, source, output)
-        }
+            output = com.yanagikh.keepg.editor.ImageRenderer.render(requireNotNull(source), request)
+            com.yanagikh.keepg.editor.ImageExport(context).save(requireNotNull(output), request.outputName, request.exportFormat, request.exportQuality, sanitizeTimestamp(media.dateTaken)).toString()
+        } finally { recycleDistinctBitmaps(decoded, source, output) }
     }
 
     override suspend fun repair(media: PhotoEntity, preferredTimestamp: Long?): RepairReport = withContext(Dispatchers.IO) {

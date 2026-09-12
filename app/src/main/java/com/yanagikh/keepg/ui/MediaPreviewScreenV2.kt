@@ -1,5 +1,6 @@
 package com.yanagikh.keepg.ui
 
+import com.yanagikh.keepg.agent.AgentEntryButton
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
@@ -111,7 +112,8 @@ internal fun MediaPreviewDialogV2(
     var showShare by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
-    var showEditor by remember { mutableStateOf(false) }
+    var showEditor by remember(photo.mediaId) { mutableStateOf(false) }
+    var gifEditorMode by remember(photo.mediaId) { mutableIntStateOf(0) }
     var showMore by remember { mutableStateOf(false) }
     var pickCollection by remember { mutableStateOf(false) }
     var repair by remember { mutableStateOf(false) }
@@ -130,6 +132,7 @@ internal fun MediaPreviewDialogV2(
                         title = { Text(photo.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         navigationIcon = { IconButton(onDismiss) { Icon(Icons.Default.ArrowBack, tr("Back")) } },
                         actions = {
+                            AgentEntryButton()
                             IconButton(onFavorite) { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, tr(if (isFavorite) "Unfavorite" else "Favorite")) }
                             IconButton({ showShare = true }) { Icon(Icons.Default.Share, tr("Share")) }
                             Box {
@@ -210,7 +213,7 @@ internal fun MediaPreviewDialogV2(
                         fullFeatures = fullFeatures,
                         onFavorite = onFavorite,
                         onShare = { showShare = true },
-                        onEdit = { showEditor = true },
+                        onEdit = { gifEditorMode = 0; showEditor = true },
                         onDelete = { showDelete = true },
                         onDetails = { showDetails = true },
                     )
@@ -228,7 +231,14 @@ internal fun MediaPreviewDialogV2(
     }
     if (showDetails) MediaDetailsDialogV2(photo, { showDetails = false }, onRename)
     if (showEditor) {
-        if (photo.mimeType.startsWith("image/")) {
+        if (photo.mimeType == "image/gif" && gifEditorMode == 0) {
+            AlertDialog(onDismissRequest = { showEditor = false }, title = { Text(tr("GIF editor")) },
+                text = { Text(tr("Edit the full animation or extract and edit a single still frame. The original GIF is preserved.")) },
+                confirmButton = { TextButton({ gifEditorMode = 1 }) { Text(tr("Edit animation")) } },
+                dismissButton = { TextButton({ gifEditorMode = 2 }) { Text(tr("Edit single frame")) } })
+        } else if (photo.mimeType == "image/gif" && gifEditorMode == 1) {
+            GifAnimationEditor(photo, { showEditor = false }, onRefresh)
+        } else if (photo.mimeType.startsWith("image/")) {
             AdvancedImageEditorDialogV2(
                 photo = photo,
                 onDismiss = { showEditor = false },
@@ -585,337 +595,14 @@ private fun ZoomableVideoPlayerV2(
 private enum class CropDragMode { NONE, MOVE, LEFT, RIGHT, TOP, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
 @Composable
-private fun AdvancedImageEditorDialogV2(
-    photo: PhotoEntity,
-    onDismiss: () -> Unit,
-    onQuickEdit: (MediaEditOperation) -> Unit,
-    onApply: (AdvancedEditRequest) -> Unit,
-) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var rotation by remember { mutableFloatStateOf(0f) }
-    var viewport by remember { mutableStateOf(IntSize.Zero) }
-    var sourceSize by remember(photo.mediaId) {
-        mutableStateOf(IntSize(photo.width.coerceAtLeast(1), photo.height.coerceAtLeast(1)))
-    }
-    var cropLeft by remember { mutableFloatStateOf(0f) }
-    var cropTop by remember { mutableFloatStateOf(0f) }
-    var cropRight by remember { mutableFloatStateOf(1f) }
-    var cropBottom by remember { mutableFloatStateOf(1f) }
-    var cropMode by remember { mutableStateOf("Original") }
-    var dragMode by remember { mutableStateOf(CropDragMode.NONE) }
-    var background by remember { mutableStateOf(BackgroundRemovalMode.NONE) }
-    var backgroundStrength by remember { mutableFloatStateOf(.28f) }
-    var brightness by remember { mutableFloatStateOf(0f) }
-    var contrast by remember { mutableFloatStateOf(1f) }
-    var saturation by remember { mutableFloatStateOf(1f) }
-    var outputName by remember { mutableStateOf(photo.displayName.substringBeforeLast('.', photo.displayName) + "_edit") }
-    var textInput by remember { mutableStateOf("") }
-    var layers by remember { mutableStateOf<List<TextLayerSpec>>(emptyList()) }
-    val latestLayers by rememberUpdatedState(layers)
-    val borderColor = MaterialTheme.colorScheme.primary
-    val density = LocalDensity.current
-
-    fun setPreset(mode: String) {
-        cropMode = mode
-        val rect = cropRectV2(mode, viewport.width, viewport.height, sourceSize.width, sourceSize.height)
-        cropLeft = rect[0]; cropTop = rect[1]; cropRight = rect[2]; cropBottom = rect[3]
-    }
-
-    LaunchedEffect(viewport, cropMode, sourceSize) {
-        if (viewport.width > 0 && viewport.height > 0 && cropMode != "Free") {
-            val rect = cropRectV2(cropMode, viewport.width, viewport.height, sourceSize.width, sourceSize.height)
-            cropLeft = rect[0]; cropTop = rect[1]; cropRight = rect[2]; cropBottom = rect[3]
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onDismiss) { Icon(Icons.Default.Close, tr("Close")) }
-                    Text(tr("Image editor"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Button({
-                        onApply(
-                            AdvancedEditRequest(
-                                outputName = outputName,
-                                offsetX = if (viewport.width > 0) offset.x / viewport.width else 0f,
-                                offsetY = if (viewport.height > 0) offset.y / viewport.height else 0f,
-                                scale = scale,
-                                rotation = rotation,
-                                viewportAspectRatio = if (viewport.width > 0 && viewport.height > 0) viewport.width.toFloat() / viewport.height else 1f,
-                                cropLeft = cropLeft,
-                                cropTop = cropTop,
-                                cropRight = cropRight,
-                                cropBottom = cropBottom,
-                                backgroundRemoval = background,
-                                backgroundStrength = backgroundStrength,
-                                brightness = brightness,
-                                contrast = contrast,
-                                saturation = saturation,
-                                textLayers = layers,
-                            )
-                        )
-                    }) { Text(tr("Apply edit")) }
-                }
-                Box(
-                    Modifier.fillMaxWidth().weight(1f).clipToBounds().background(MaterialTheme.colorScheme.surfaceVariant).onSizeChanged { viewport = it }
-                        .pointerInput(photo.mediaId) {
-                            detectTransformGestures { _, pan, zoom, gestureRotation ->
-                                scale = (scale * zoom).coerceIn(.2f, 16f)
-                                offset += pan
-                                rotation = (rotation + gestureRotation) % 360f
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AsyncImage(
-                        model = Uri.parse(photo.uri),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y, rotationZ = rotation),
-                        contentScale = ContentScale.Fit,
-                        onSuccess = { state ->
-                            val drawable = state.result.drawable
-                            if (drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0) {
-                                sourceSize = IntSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
-                            }
-                        },
-                    )
-                    Canvas(
-                        Modifier.fillMaxSize().pointerInput(viewport, cropLeft, cropTop, cropRight, cropBottom) {
-                            detectDragGestures(
-                                onDragStart = { pos ->
-                                    if (viewport.width <= 0 || viewport.height <= 0) return@detectDragGestures
-                                    val left = cropLeft * viewport.width
-                                    val right = cropRight * viewport.width
-                                    val top = cropTop * viewport.height
-                                    val bottom = cropBottom * viewport.height
-                                    val threshold = 40.dp.toPx()
-                                    val nearLeft = abs(pos.x - left) <= threshold
-                                    val nearRight = abs(pos.x - right) <= threshold
-                                    val nearTop = abs(pos.y - top) <= threshold
-                                    val nearBottom = abs(pos.y - bottom) <= threshold
-                                    dragMode = when {
-                                        nearLeft && nearTop -> CropDragMode.TOP_LEFT
-                                        nearRight && nearTop -> CropDragMode.TOP_RIGHT
-                                        nearLeft && nearBottom -> CropDragMode.BOTTOM_LEFT
-                                        nearRight && nearBottom -> CropDragMode.BOTTOM_RIGHT
-                                        nearLeft -> CropDragMode.LEFT
-                                        nearRight -> CropDragMode.RIGHT
-                                        nearTop -> CropDragMode.TOP
-                                        nearBottom -> CropDragMode.BOTTOM
-                                        pos.x in left..right && pos.y in top..bottom -> CropDragMode.MOVE
-                                        else -> CropDragMode.NONE
-                                    }
-                                },
-                                onDragEnd = { dragMode = CropDragMode.NONE },
-                                onDragCancel = { dragMode = CropDragMode.NONE },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    if (viewport.width <= 0 || viewport.height <= 0) return@detectDragGestures
-                                    cropMode = "Free"
-                                    val dx = dragAmount.x / viewport.width
-                                    val dy = dragAmount.y / viewport.height
-                                    val minSize = .08f
-                                    when (dragMode) {
-                                        CropDragMode.MOVE -> {
-                                            val width = cropRight - cropLeft
-                                            val height = cropBottom - cropTop
-                                            val newLeft = (cropLeft + dx).coerceIn(0f, 1f - width)
-                                            val newTop = (cropTop + dy).coerceIn(0f, 1f - height)
-                                            cropLeft = newLeft; cropRight = newLeft + width
-                                            cropTop = newTop; cropBottom = newTop + height
-                                        }
-                                        CropDragMode.LEFT, CropDragMode.TOP_LEFT, CropDragMode.BOTTOM_LEFT -> cropLeft = (cropLeft + dx).coerceIn(0f, cropRight - minSize)
-                                        else -> Unit
-                                    }
-                                    when (dragMode) {
-                                        CropDragMode.RIGHT, CropDragMode.TOP_RIGHT, CropDragMode.BOTTOM_RIGHT -> cropRight = (cropRight + dx).coerceIn(cropLeft + minSize, 1f)
-                                        else -> Unit
-                                    }
-                                    when (dragMode) {
-                                        CropDragMode.TOP, CropDragMode.TOP_LEFT, CropDragMode.TOP_RIGHT -> cropTop = (cropTop + dy).coerceIn(0f, cropBottom - minSize)
-                                        else -> Unit
-                                    }
-                                    when (dragMode) {
-                                        CropDragMode.BOTTOM, CropDragMode.BOTTOM_LEFT, CropDragMode.BOTTOM_RIGHT -> cropBottom = (cropBottom + dy).coerceIn(cropTop + minSize, 1f)
-                                        else -> Unit
-                                    }
-                                },
-                            )
-                        }
-                    ) {
-                        val l = cropLeft * size.width
-                        val r = cropRight * size.width
-                        val t = cropTop * size.height
-                        val b = cropBottom * size.height
-                        val shade = Color.Black.copy(alpha = .42f)
-                        drawRect(shade, Offset.Zero, Size(size.width, t))
-                        drawRect(shade, Offset(0f, b), Size(size.width, size.height - b))
-                        drawRect(shade, Offset(0f, t), Size(l, b - t))
-                        drawRect(shade, Offset(r, t), Size(size.width - r, b - t))
-                        drawRect(borderColor, Offset(l, t), Size(r - l, b - t), style = Stroke(3.dp.toPx()))
-                    }
-                    val previewTextSize = with(density) {
-                        (min(
-                            (cropRight - cropLeft).coerceAtLeast(.02f) * viewport.width,
-                            (cropBottom - cropTop).coerceAtLeast(.02f) * viewport.height,
-                        ) * .075f).coerceAtLeast(16f).toSp()
-                    }
-                    layers.forEachIndexed { index, layer ->
-                        Text(
-                            text = layer.text.take(120),
-                            color = Color.White,
-                            fontSize = previewTextSize,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip,
-                            style = TextStyle(shadow = Shadow(Color.Black, Offset(0f, 2f), 4f)),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .offset {
-                                    IntOffset(
-                                        (layer.x.coerceIn(0f, 1f) * viewport.width).roundToInt(),
-                                        (layer.y.coerceIn(0f, 1f) * viewport.height).roundToInt(),
-                                    )
-                                }
-                                .graphicsLayer(
-                                    scaleX = layer.scale,
-                                    scaleY = layer.scale,
-                                    rotationZ = layer.rotation,
-                                    transformOrigin = TransformOrigin(0f, 0f),
-                                )
-                                .pointerInput(index, viewport) {
-                                    detectTransformGestures { _, pan, zoom, gestureRotation ->
-                                        if (viewport.width <= 0 || viewport.height <= 0) return@detectTransformGestures
-                                        val current = latestLayers.getOrNull(index) ?: return@detectTransformGestures
-                                        layers = latestLayers.toMutableList().also { mutable ->
-                                            mutable[index] = current.copy(
-                                                x = (current.x + pan.x / viewport.width).coerceIn(0f, .95f),
-                                                y = (current.y + pan.y / viewport.height).coerceIn(0f, .95f),
-                                                scale = (current.scale * zoom).coerceIn(.35f, 5f),
-                                                rotation = (current.rotation + gestureRotation) % 360f,
-                                            )
-                                        }
-                                    }
-                                },
-                        )
-                    }
-                }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text(tr("Drag, pinch, or rotate the image, crop box, and text layers directly on the preview."), style = MaterialTheme.typography.bodySmall) }
-                    item { OutlinedTextField(outputName, { outputName = it }, Modifier.fillMaxWidth(), label = { Text(tr("Output name")) }, singleLine = true) }
-                    item {
-                        Text(tr("Crop"), fontWeight = FontWeight.Bold)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Free", "Original", "Square", "4:3", "16:9").forEach { value -> FilterChip(cropMode == value, { setPreset(value) }, { Text(tr(value)) }) }
-                        }
-                    }
-                    item {
-                        Text(tr("Quick edits"), fontWeight = FontWeight.Bold)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.ROTATE_RIGHT) }) { Icon(Icons.Default.RotateRight, null); Text(tr("Rotate")) }
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.FLIP_HORIZONTAL) }) { Icon(Icons.Default.Flip, null); Text(tr("Flip")) }
-                            OutlinedButton({ onQuickEdit(MediaEditOperation.GRAYSCALE) }) { Icon(Icons.Default.FilterBAndW, null); Text(tr("Grayscale")) }
-                            TextButton({ scale = 1f; offset = Offset.Zero; rotation = 0f }) { Text(tr("Reset view")) }
-                        }
-                    }
-                    item {
-                        Text(tr("Color adjustments"), fontWeight = FontWeight.Bold)
-                        Text(trf("Brightness: %s", String.format(Locale.ROOT, "%+.0f%%", brightness * 100f)), style = MaterialTheme.typography.labelMedium)
-                        Slider(brightness, { brightness = it }, valueRange = -1f..1f)
-                        Text(trf("Contrast: %s", String.format(Locale.ROOT, "%.0f%%", contrast * 100f)), style = MaterialTheme.typography.labelMedium)
-                        Slider(contrast, { contrast = it }, valueRange = .25f..2.5f)
-                        Text(trf("Saturation: %s", String.format(Locale.ROOT, "%.0f%%", saturation * 100f)), style = MaterialTheme.typography.labelMedium)
-                        Slider(saturation, { saturation = it }, valueRange = 0f..2f)
-                    }
-                    item {
-                        Text(tr("Background"), fontWeight = FontWeight.Bold)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(BackgroundRemovalMode.NONE to "Keep background", BackgroundRemovalMode.AUTO to "Auto remove", BackgroundRemovalMode.MANUAL to "Manual remove").forEach { (mode, label) -> FilterChip(background == mode, { background = mode }, { Text(tr(label)) }) }
-                        }
-                        if (background == BackgroundRemovalMode.MANUAL) Slider(backgroundStrength, { backgroundStrength = it }, valueRange = .05f.. .75f)
-                    }
-                    item {
-                        Text(tr("Layers"), fontWeight = FontWeight.Bold)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(textInput, { textInput = it }, Modifier.weight(1f), label = { Text(tr("Text layer")) }, singleLine = true)
-                            IconButton({
-                                if (textInput.isNotBlank()) {
-                                    val index = layers.size
-                                    layers = layers + TextLayerSpec(textInput.trim(), x = .18f + (index % 3) * .2f, y = .35f + (index % 4) * .1f)
-                                    textInput = ""
-                                }
-                            }) { Icon(Icons.Default.Add, tr("Add text layer")) }
-                        }
-                        layers.forEachIndexed { index, layer ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(layer.text, Modifier.weight(1f), maxLines = 1)
-                                IconButton({ layers = layers.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Default.Delete, tr("Delete")) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+private fun AdvancedImageEditorDialogV2(photo: PhotoEntity, onDismiss: () -> Unit, onQuickEdit: (MediaEditOperation) -> Unit, onApply: (AdvancedEditRequest) -> Unit) {
+    ProfessionalImageEditor(photo, onDismiss, onApply)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdvancedVideoEditorDialogV2(photo: PhotoEntity, onDismiss: () -> Unit, onRefresh: () -> Unit) {
-    val context = LocalContext.current
-    val appLanguage = LocalAppLanguage.current
-    fun localized(key: String): String = UiLocalizer.text(appLanguage, key)
-    val repository = remember(context) { VideoEditRepository(context.applicationContext) }
-    val scope = rememberCoroutineScope()
-    val durationSeconds = max(1f, photo.durationMs / 1000f)
-    var range by remember(photo.mediaId) { mutableStateOf(0f..durationSeconds) }
-    var mute by remember { mutableStateOf(false) }
-    var working by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = { if (!working) onDismiss() },
-        title = { Text(tr("Video editor")) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(tr("Trim by dragging the range handles. KeepG writes a new MP4 and leaves the source untouched."))
-                RangeSlider(value = range, onValueChange = { range = it }, valueRange = 0f..durationSeconds)
-                Text(String.format(Locale.ROOT, "%.1fs — %.1fs", range.start, range.endInclusive))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(mute, { mute = it })
-                    Text(tr("Remove audio"))
-                }
-                message?.let { Text(it, color = if (it == localized("Created edited copy")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
-                if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = !working && range.endInclusive - range.start >= .1f,
-                onClick = {
-                    working = true
-                    message = null
-                    scope.launch {
-                        try {
-                            repository.createEditedCopy(photo, (range.start * 1000).toLong(), (range.endInclusive * 1000).toLong(), mute)
-                            message = localized("Created edited copy")
-                            onRefresh()
-                        } catch (cancellation: CancellationException) {
-                            throw cancellation
-                        } catch (error: Throwable) {
-                            Log.e("KeepGPreview", "Video edit failed", error)
-                            message = localized("Video edit failed")
-                        } finally {
-                            working = false
-                        }
-                    }
-                },
-            ) { Text(tr("Apply edit")) }
-        },
-        dismissButton = { TextButton({ if (!working) onDismiss() }) { Text(tr("Close")) } },
-    )
+    ProfessionalVideoEditor(photo, onDismiss, onRefresh)
 }
 
 @Composable

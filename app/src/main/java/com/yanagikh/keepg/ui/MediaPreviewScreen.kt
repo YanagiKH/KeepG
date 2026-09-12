@@ -105,7 +105,7 @@ internal fun MediaPreviewDialog(
                                     onClick = { showMore = false; if (lock == null) onLock() else onRemoveLock(lock) },
                                 )
                                 if (fullFeatures) {
-                                    DropdownMenuItem({ Text("Vault") }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
+                                    DropdownMenuItem({ Text(tr("Vault")) }, { showMore = false; onVault() }, leadingIcon = { Icon(Icons.Default.EnhancedEncryption, null) })
                                     if (photo.mimeType.startsWith("image/")) {
                                         DropdownMenuItem({ Text(tr("Analyze")) }, { showMore = false; onAnalyze() }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) })
                                         DropdownMenuItem({ Text(tr("Links")) }, { showMore = false; onDetectLinks(null, null) }, leadingIcon = { Icon(Icons.Default.QrCodeScanner, null) })
@@ -179,9 +179,9 @@ internal fun MediaPreviewDialog(
         AlertDialog(
             onDismissRequest = { repair = false },
             title = { Text(tr("Repair")) },
-            text = { Text("KeepG creates a recovered copy instead of destructively rewriting the original.") },
-            confirmButton = { TextButton({ onRepair(false); repair = false }) { Text("Preserve date") } },
-            dismissButton = { Row { TextButton({ onRepair(true); repair = false }) { Text("Use current date") }; TextButton({ repair = false }) { Text(tr("Cancel")) } } },
+            text = { Text(tr("KeepG creates a recovered copy instead of destructively rewriting the original.")) },
+            confirmButton = { TextButton({ onRepair(false); repair = false }) { Text(tr("Preserve date")) } },
+            dismissButton = { Row { TextButton({ onRepair(true); repair = false }) { Text(tr("Use current date")) }; TextButton({ repair = false }) { Text(tr("Cancel")) } } },
         )
     }
 }
@@ -300,9 +300,9 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
     var textInput by remember { mutableStateOf("") }
     var layers by remember { mutableStateOf<List<TextLayerSpec>>(emptyList()) }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onDismiss) { Icon(Icons.Default.Close, tr("Close")) }
                     Text(tr("Image editor"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -356,7 +356,7 @@ private fun AdvancedImageEditorDialog(photo: PhotoEntity, onDismiss: () -> Unit,
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton({ rotation -= 90f }) { Text("↶ 90°") }
                             OutlinedButton({ rotation += 90f }) { Text("↷ 90°") }
-                            TextButton({ scale = 1f; offset = Offset.Zero; rotation = 0f }) { Text("Reset") }
+                            TextButton({ scale = 1f; offset = Offset.Zero; rotation = 0f }) { Text(tr("Reset")) }
                         }
                     }
                     item {

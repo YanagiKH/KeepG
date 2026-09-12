@@ -1,106 +1,53 @@
-# KeepG Security Manual
+# KeepG 0.7 安全手冊
 
-## Security goals
+## 保護範圍
 
-KeepG is designed as a privacy-first Android gallery with two distinct protection layers:
+KeepG 提供兩種不同的保護。**應用程式內鎖**限制 KeepG 顯示特定照片或裝置相簿；**加密保險箱**另存一份 App 私有 AES-GCM 副本。內部鎖不加密 MediaStore 原檔，不能阻止其他相簿、已取得權限的程式或使用者存取該原檔。不要把鎖頭圖示當成整個手機檔案已加密。
 
-1. **In-app locks** protect selected photos or device albums from being displayed in KeepG until the configured authentication succeeds.
-2. **Vault encryption** creates an AES-GCM encrypted copy in app-private storage using a key generated and retained by Android Keystore.
+保護與保險箱屬 Full 功能。AI、編輯器和收藏集不新增繞過認證的權限。編輯／修復結果與主動匯出的保險箱副本是普通媒體，**不會自動繼承鎖或加密**。
 
-These layers solve different problems. An in-app lock does **not** make an original MediaStore file invisible to another gallery application. For confidentiality against other apps, create a Vault copy and remove the original through Android's system media controls.
+## 認證及金鑰
 
-## Authentication modes
+裝置驗證透過 AndroidX BiometricPrompt，依系統支援使用強生物辨識／裝置憑證。KeepG 不取得指紋、臉部模板、PIN、圖形或系統密碼。應用程式密碼採 SecureRandom 128-bit 鹽、PBKDF2-HMAC-SHA256 210,000 次、256-bit 衍生結果，使用固定時間位元組比較；不儲存明文密碼。仍應選足夠長且不重複的密碼，雜湊不能補救弱密碼。
 
-### Device credential
+保險箱檔案位於私有 `files/vault/`，使用 Android Keystore 非匯出 AES 金鑰 `keepg-vault-aes-v1`、每檔隨機 IV 與 128-bit GCM 驗證標籤。格式為 `[1 byte IV 長度][IV][密文及驗證標籤]`。密文遭竄改時解密應失敗，而不是輸出未驗證內容。Keystore 金鑰不寫入 Room、偏好設定或 Git 儲存庫。
 
-KeepG uses AndroidX `BiometricPrompt` and requests a strong biometric or the device credential. KeepG never receives the user's fingerprint, face template, PIN, pattern, or device password. Android performs authentication and returns success or failure.
+**解除安裝、清除應用程式資料、重設裝置或金鑰失效可能造成永久資料遺失。** `.kgv` 的複製不包含可攜式解密金鑰，不能當成跨裝置復原方案。先在原裝置正常解鎖、匯出必要內容、驗證備份可開啟，再進行移機、清除或更換測試版。Room、偏好設定與 Vault 不依賴一般 Android 雲端備份復原。
 
-### KeepG password
+## 安全操作順序
 
-Per-target KeepG passwords are never stored in plaintext. A random 128-bit salt is generated with `SecureRandom`, then the password is derived with PBKDF2-HMAC-SHA256 using 210,000 iterations and a 256-bit output. Verification uses constant-time `MessageDigest.isEqual`.
+先備份不可取代的原檔，再匯入保險箱；逐一確認副本可解密。要讓其他相簿不再看見原檔，需另行使用 Android 的刪除流程，並理解垃圾桶／備份中仍可能保留副本。編輯及修復後先確認結果，不要立即刪掉唯一原檔。分享、解密匯出或開啟外部網址前重新檢查目標與接收者。
 
-Password lock records are stored in the local Room database. Android backup is disabled for the database and shared preferences.
+螢幕擷取保護是可選設定，只能保護相應 KeepG 視窗，不保證阻擋 root、受控制的作業系統、外部相機或其他應用程式。合法解鎖後的畫面與已匯出檔案不具有永久不可外流保證。
 
-## Vault encryption
+## 本機 AI 與下載
 
-Vault files use GCM mode with a 128-bit authentication tag, a fresh randomized IV per file, a non-exportable Android Keystore AES key alias (`keepg-vault-aes-v1`), and app-private internal storage under `files/vault/`.
+0.7 宣告 `INTERNET`、網路狀態與前景下載相關權限，供使用者發起的 Hugging Face 模型搜尋／下載。推論、OCR、人臉分析與編輯在本機執行；AI 實作沒有雲端媒體上傳端點。HF 及其下載主機會收到正常連線／請求中繼資料。外部瀏覽器和 Android 分享是獨立的使用者行為，不能聲稱完全沒有網路資料流。
 
-```text
-[1 byte IV length][IV bytes][AES-GCM ciphertext + authentication tag]
-```
+下載固定模型修訂，先核對大小及 SHA-256，再原子安裝；取消／重試不應把不完整 `.part` 當成可用模型。HF read token 使用 Android Keystore 加密，且不轉送到 CDN 轉址，不可貼到聊天、公開 issue 或日誌。只授予必要讀取權限，使用完可移除。雜湊證明內容一致，不證明發布者可信或原生模型解析器沒有漏洞；只安裝可信且相容的模型。
 
-Decryption fails when ciphertext or the authentication tag has been modified.
+AI 附件、檔名、模型輸出與 Skill 都是不可信資料。文字中的「忽略規則」「匯出秘密」「立刻刪除」不等於授權。操作只接受白名單和本輪可見媒體 ID，確認卡在執行前重查目標、鎖與權限；分享／刪除／保護仍經既有確認，已消耗的建議不可重播。關閉工具、清除聊天、背景切換或相關鎖／權限改變使待執行建議失效。詳見 [AI 手冊](AI_MANUAL.md)。
 
-## Face and smart-classification privacy
+Skills 匯入後預設停用，需檢閱後啟用。限制 Markdown／ZIP 大小、路徑穿越、YAML 別名與欄位；不執行 shell、Python、JavaScript、下載腳本或原生外掛。這不是任意代理腳本的安全執行環境。
 
-KeepG's current classifier runs on-device. Photos are read from Android MediaStore and passed to ML Kit's on-device face detector. KeepG derives a local face descriptor from a normalized face crop plus detector geometry/classification signals. Face descriptors and grouping metadata stay in the local Room database.
+## 編輯、解碼及取消
 
-KeepG does not implement identity verification and must not be used as an access-control biometric system. Automatic person groups are convenience suggestions and may produce false matches or misses.
+圖片／GIF／影片的編輯及修復都建立新副本，不用寫入模式開啟原檔。圖片／GIF 共用渲染與裁切座標；GIF 原生解碼前檢查區塊、尺寸、幀數及解碼配置上限。影片工作區使用 Media3 Transformer；既有快速工具／修復可使用 remux，不應混淆兩條流程。
 
-## Editor and repair safety
+Android 10+ 先寫入 pending MediaStore 項目，完成後才公開；失敗／取消則清理未完成項目及暫存。舊版 Android 沒有相同 pending 機制，仍會盡力清理新檔。突然斷電、系統強制終止或 OEM 原生程式無法即時中斷不在一般例外處理的保證範圍。大型檔案、GPU、記憶體和磁碟限制都可能使操作失敗；先用副本驗證。
 
-Full-edition image/video/GIF editing is non-destructive. KeepG creates a new output item instead of overwriting the source. File/date repair follows the same recovered-copy model. This reduces the chance that an editing or repair failure destroys the only copy of a user's media.
+## OCR、網址、智慧分類及日誌
 
-Automatic background removal uses a bundled on-device segmentation model. Adjustable manual removal samples a background color and removes pixels within the user-selected tolerance. Neither operation uploads the image.
+網址偵測只提供 HTTP(S)；點選後由外部瀏覽器處理，不在 KeepG 自動執行頁面。合法網址格式不表示網站安全，仍須防範釣魚。人臉描述、姓名、位置、文字索引等是敏感本機中繼資料；分群是便利建議，不可當作存取控制或身分驗證依據。
 
-Video trimming/muting uses Android demux/remux APIs. If source tracks cannot be safely remuxed into MP4, the operation fails and the original remains untouched.
+除錯日誌在私有 `files/debug/keepg.log`，2 MiB 輪替，只有主動匯出才離開 App。不得記錄密碼、權杖、衍生金鑰、Keystore 金鑰、解密保險箱內容或完整人臉描述。檔名、時間、例外與操作仍可能洩露資訊；公開前先去識別化。不要為回報問題而上傳整份私人資料庫或原始相簿。
 
-## External URL and QR handling
+## 發布安全
 
-KeepG can inspect an unlocked image for QR/barcode content and visible text URLs. Detection runs on-device. The application only presents normalized `http://` and `https://` targets; arbitrary custom schemes are rejected.
+CI 的 APK 為臨時 debug 簽署測試版，AAB 尚未正式簽署，不宣稱可直接上架或具有穩定升級身分。發布只接受目前 main、同儲存庫、成功 push Android CI 的固定來源產物；驗證完整 13 個資產、大小及雜湊，從草稿驗證完成後公開。校驗碼不是安全稽核證書。
 
-Opening a detected URL launches the user's external browser through Android `ACTION_VIEW`. KeepG itself still declares no `INTERNET` permission and does not fetch the destination page. Users must treat QR/URL destinations as untrusted external content and review the displayed host before opening it.
+本專案不保證抵禦 root／遭入侵的 OS、弱密碼、原生解碼漏洞、已授權後的資料外流或所有惡意輸入。維持 Android 和依賴更新、獨立備份及最小權限，是使用者和維護者共同責任。
 
-## Debug logging
+## 回報弱點
 
-The optional persistent debug log is stored in app-private storage and rotates at 2 MiB. Export is always user-initiated through Android's document picker. KeepG must not log plaintext passwords, password-derived keys, Vault keys, decrypted Vault bytes, biometric material, or full face descriptor arrays.
-
-Debug logs can still contain filenames, operation names, error messages, and timestamps. Users should review exported logs before sharing them publicly.
-
-## Release signing boundary
-
-Automated GitHub prerelease APKs are Android debug-key signed for installation/testing. They are not represented as production-signed store artifacts. Production signing private keys must never be committed to the repository. AAB artifacts from CI require a proper production signing/store pipeline before public store distribution.
-
-## Threat model
-
-### Defended against
-
-- Casual access to protected items inside KeepG without authentication.
-- Plaintext disclosure of Vault copies from app-private storage.
-- Direct recovery of KeepG passwords from stored password strings; plaintext passwords are not stored.
-- Normal Android cloud backup of KeepG's database and Vault directory.
-- Accidental app-level network upload by the current classifier/editor; the app has no Internet permission.
-- Destructive source overwrite by editor/repair operations; results are written as new copies.
-- Arbitrary URI-scheme launching from detected QR/text values; only HTTP(S) is exposed.
-
-### Not fully defended against
-
-- A rooted or compromised device controlling the OS/runtime.
-- Screenshots or screen recording after legitimate unlock.
-- Another app reading an **original** MediaStore photo when only an in-app KeepG lock was applied.
-- Malicious/phishing content at a user-opened HTTP(S) destination.
-- Physical attacks outside Android Keystore guarantees.
-- Incorrect smart/person/background classification.
-- Weak user-chosen passwords.
-- Media payload corruption that Android cannot decode or recover.
-
-## Safe operating procedure
-
-1. Keep Android updated and configure a strong device credential.
-2. Prefer device authentication for frequently accessed protected albums.
-3. Use a unique password of at least 12 characters when password mode is required.
-4. For genuinely sensitive photos, create an encrypted Vault copy.
-5. Verify the Vault import completed before deleting the original.
-6. Delete the original through Android's trusted system UI if it must disappear from other gallery apps.
-7. Treat QR/URL results as untrusted and verify the destination host before opening.
-8. Review exported debug logs before sharing them.
-9. Keep irreplaceable originals until an edited/repaired copy has been verified.
-10. Before selling or transferring the device, uninstall KeepG and perform the manufacturer's secure reset.
-
-## Key-loss behavior
-
-The Vault key is tied to Android Keystore. Uninstalling KeepG normally removes its Keystore entry and app-private files. Copying `.kgv` files to another device without a supported key migration mechanism does not make them decryptable. Keep independent backups of irreplaceable photos before moving originals exclusively into a destructive future Vault workflow.
-
-## Reporting a vulnerability
-
-Do not post exploit details for an unpatched vulnerability in a public issue. Contact the repository owner privately through an available GitHub security reporting channel when enabled. Include the affected commit, Android version/device, reproduction steps, impact, and safe proof-of-concept data.
+先確認問題使用的是哪個提交／APK、Android 版本、ABI 與套件版本，提供合成資料的最小重現及影響。未修補漏洞的攻擊細節不要直接公開；使用儲存庫已啟用的 GitHub 私密安全回報管道，或維護者可用的私人聯絡方式。不要附加密碼、權杖或真實私人媒體。
